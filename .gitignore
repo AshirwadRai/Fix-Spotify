@@ -1,0 +1,63 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+.eggs/
+*.egg
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# PyInstaller
+build/
+dist/
+*.spec.bak
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+
+# Test artifacts
+*.m4a
+*.mp3
+*.mp4
+*.webm
+*.opus
+*.flac
+
+# Environment variables
+.env
+.env.local
+
+# Tauri build output
+frontend/src-tauri/target/
+
+# Sidecar binary (built by build_backend.ps1 → PyInstaller)
+frontend/src-tauri/backend-*.exe
+
+# Auto-generated Tauri schemas
+frontend/src-tauri/gen/
+
+# Frontend (handled by frontend/.gitignore)
+frontend/node_modules/
+frontend/dist/
+
+# Agent files
+.agents/
+
+# Bundled runtime binaries (deno + ffmpeg shared build) — large, fetched at build time
+vendor/

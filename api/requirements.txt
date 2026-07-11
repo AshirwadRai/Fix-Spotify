@@ -1,0 +1,24 @@
+# FastAPI dependencies
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+pydantic==2.6.1
+python-multipart==0.0.6
+
+# Core components (already in parent)
+# - requests
+# - rapidfuzz
+
+# Audio processing
+mutagen==1.47.0
+ffmpeg-python==0.2.0
+
+# yt-dlp for downloads. The [default] extra pulls in yt-dlp-ejs, which is
+# REQUIRED to solve YouTube's JavaScript "n-signature" challenge — without it
+# YouTube extraction returns "No video formats found". Also needs an external
+# JS runtime on PATH at runtime: Deno (recommended, bundle in the EXE) or
+# Node >=22 (present in dev via the frontend toolchain).
+yt-dlp[default]>=2026.6.9
+yt-dlp-ejs>=0.8.0
+
+# Optional: browser_cookie3 for YouTube cookies
+browser-cookie3==0.18.0
