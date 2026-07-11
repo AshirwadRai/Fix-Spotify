@@ -41,6 +41,23 @@ export function renamePlaylist(id, name) {
   emit();
 }
 
+/**
+ * Set (or clear) a custom cover image.
+ *
+ * `image` is a data: URI, not a file path — the WebView has no stable access to
+ * the phone's gallery, and a path would break the moment the user moved or
+ * deleted the picture. Storing the bytes means the cover survives.
+ *
+ * Pass null to clear it, which falls the playlist back to the artwork mosaic
+ * built from its tracks.
+ */
+export function setPlaylistImage(id, image) {
+  writePlaylists(
+    readPlaylists().map((p) => (p.id === id ? { ...p, image: image || undefined } : p))
+  );
+  emit();
+}
+
 /** Returns true if the track was added, false if it was already there. */
 export function addTrackToPlaylist(id, track) {
   const t = normalizeTrack(track);

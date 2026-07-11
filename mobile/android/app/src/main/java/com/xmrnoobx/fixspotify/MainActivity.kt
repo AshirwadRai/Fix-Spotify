@@ -2,22 +2,29 @@ package com.xmrnoobx.fixspotify
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
+import android.util.Log
 import android.view.View
 import android.webkit.JavascriptInterface
+import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -43,6 +50,17 @@ class MainActivity : AppCompatActivity() {
     private val handler = Handler(Looper.getMainLooper())
 
     private var pageLoaded = false
+
+    // Bridges <input type="file"> in the WebView to the system picker.
+    private var filePathCallback: ValueCallback<Array<Uri>>? = null
+    private val fileChooser = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        // The WebView blocks until this fires. Handing back null on cancel is
+        // what tells it the user backed out, rather than leaving the input stuck.
+        filePathCallback?.onReceiveValue(if (uri != null) arrayOf(uri) else null)
+        filePathCallback = null
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -87,7 +105,30 @@ class MainActivity : AppCompatActivity() {
             textZoom = 100                        // ignore the system font-size setting
         }
 
-        webView.webChromeClient = WebChromeClient()
+        // A bare WebChromeClient makes <input type="file"> a no-op: the WebView
+        // has no way to open a picker on its own, so the tap silently does
+        // nothing. Forwarding it to the system picker is what lets the user
+        // choose a custom playlist cover.
+        webView.webChromeClient = object : WebChromeClient() {
+            override fun onShowFileChooser(
+                view: WebView?,
+                callback: ValueCallback<Array<Uri>>?,
+                params: FileChooserParams?,
+            ): Boolean {
+                // Only one picker at a time; cancel any previous callback so the
+                // page's promise never hangs unresolved.
+                filePathCallback?.onReceiveValue(null)
+                filePathCallback = callback
+                return try {
+                    fileChooser.launch(params?.acceptTypes?.firstOrNull()?.takeIf { it.isNotBlank() } ?: "*/*")
+                    true
+                } catch (e: Exception) {
+                    filePathCallback = null
+                    callback?.onReceiveValue(null)
+                    false
+                }
+            }
+        }
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 if (pageLoaded) return
@@ -154,6 +195,34 @@ class MainActivity : AppCompatActivity() {
             @JavascriptInterface
             fun getVersion(): String =
                 packageManager.getPackageInfo(packageName, 0).versionName ?: ""
+
+            /**
+             * The secret that authorises /api/* calls. Handing it over the bridge
+             * — rather than embedding it in the page — is the entire point: any
+             * app on the device can fetch our HTML from 127.0.0.1, but only the
+             * WebView we created has this bridge.
+             */
+            @JavascriptInterface
+            fun getApiToken(): String = BackendService.API_TOKEN
+
+            /**
+             * Can we write a real file path into the phone's public Download
+             * folder? Below Android 11 the old storage permission covers it;
+             * from Android 11 on, only All-files access does.
+             */
+            @JavascriptInterface
+            fun hasStorageAccess(): Boolean = hasAllFilesAccess()
+
+            /**
+             * Send the user to the system screen where All-files access is
+             * granted. It CANNOT be granted from an in-app dialog — Android
+             * requires the toggle to be flipped in Settings — so the UI has to
+             * explain that before calling this.
+             */
+            @JavascriptInterface
+            fun requestStorageAccess() {
+                handler.post { openAllFilesAccessSettings() }
+            }
 
             /**
              * Check GitHub for a newer release. Returns a JSON string:
@@ -279,6 +348,55 @@ class MainActivity : AppCompatActivity() {
         ""
     }
 
+    // ── Storage ───────────────────────────────────────────────────────────────
+
+    /**
+     * True when we can write a real file path into the public Download folder.
+     *
+     * From Android 11 (R) that means All-files access, which is a genuinely
+     * broad permission — so it is never requested at launch, only when the user
+     * deliberately chooses a public download folder. Below R, the classic
+     * WRITE_EXTERNAL_STORAGE grant is both sufficient and narrower.
+     */
+    private fun hasAllFilesAccess(): Boolean = try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Environment.isExternalStorageManager()
+        } else {
+            ContextCompat.checkSelfPermission(
+                this, Manifest.permission.WRITE_EXTERNAL_STORAGE
+            ) == PackageManager.PERMISSION_GRANTED
+        }
+    } catch (e: Exception) {
+        false
+    }
+
+    private fun openAllFilesAccessSettings() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                // Deep-link straight to OUR app's toggle. Some OEM builds don't
+                // implement the per-app screen, so fall back to the global list
+                // rather than throwing the user out to nothing.
+                val intent = Intent(
+                    Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                    Uri.parse("package:$packageName")
+                )
+                try {
+                    startActivity(intent)
+                } catch (e: ActivityNotFoundException) {
+                    startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+                }
+            } else {
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE),
+                    REQ_STORAGE
+                )
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "cannot open storage settings", e)
+        }
+    }
+
     private fun requestNotificationPermission() {
         // Android 13+: the foreground-service notification (and therefore the
         // media controls) is silently dropped without this.
@@ -287,7 +405,13 @@ class MainActivity : AppCompatActivity() {
             == PackageManager.PERMISSION_GRANTED
         ) return
         ActivityCompat.requestPermissions(
-            this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1001
+            this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_NOTIFICATIONS
         )
+    }
+
+    private companion object {
+        const val TAG = "FixSpotify"
+        const val REQ_NOTIFICATIONS = 1001
+        const val REQ_STORAGE = 1002
     }
 }

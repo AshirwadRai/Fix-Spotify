@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -17,9 +18,23 @@
          installer. The user still confirms; we never install silently. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
-    <!-- Downloads go to the app-specific external dir, which needs NO storage
-         permission on any API level. That is why WRITE_EXTERNAL_STORAGE and
-         MANAGE_EXTERNAL_STORAGE are deliberately absent. -->
+    <!-- Downloads land in Downloads/Fix_Spotify/music so they are visible in any
+         file manager and SURVIVE an uninstall. On Android 11+ writing a real
+         file path there is only possible with All-files access; the tagger and
+         yt-dlp both need a real path, so there is no lighter permission that
+         works. It is requested LAZILY (never at launch) and only when the user
+         actually chooses a public folder — deny it and the app silently falls
+         back to its private directory rather than failing downloads.
+
+         maxSdkVersion=28 on WRITE_EXTERNAL_STORAGE: on API <=28 that older,
+         narrower permission is sufficient, so we never ask for the broad one
+         on those devices. -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+    <uses-permission
+        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
 
     <application
         android:name=".FixSpotifyApp"

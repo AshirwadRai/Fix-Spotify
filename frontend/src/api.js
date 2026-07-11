@@ -133,6 +133,21 @@ class ApiClient {
     }
   }
 
+  /**
+   * Change the download folder. Pass '' to restore the default.
+   * The backend REFUSES a folder it cannot write to, so a resolved
+   * `{ ok: false, error }` is a normal outcome, not an exception.
+   * Mobile only — the desktop build has no such route.
+   */
+  async setDownloadsDir(path) {
+    const r = await fetch(apiUrl('/downloads/dir'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: path || '' }),
+    });
+    return r.json();
+  }
+
   /** Scan the download folder → offline library from embedded tags. Never throws. */
   async scanLocalDownloads() {
     try {

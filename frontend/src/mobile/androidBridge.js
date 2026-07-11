@@ -94,6 +94,43 @@ export function getAppVersion() {
 }
 
 /**
+ * The secret that authorises /api/* calls, handed to us by Kotlin.
+ *
+ * It is fetched over the JS bridge rather than embedded in the page on purpose:
+ * any app on the device can fetch our HTML from 127.0.0.1, but only this WebView
+ * has the bridge.
+ *
+ * Returns '' on an older APK whose Kotlin lacks the method — the backend there
+ * has no token either, so the requests are accepted unauthenticated and the app
+ * keeps working.
+ */
+export function getApiToken() {
+  if (!isAndroid() || typeof window.AndroidPlayer.getApiToken !== 'function') return '';
+  try {
+    return window.AndroidPlayer.getApiToken() || '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Open the system screen where "All files access" is granted.
+ *
+ * Android deliberately does NOT let an app grant this from a dialog — the user
+ * must flip the toggle in Settings themselves — so this only navigates there.
+ * Explain why before calling it, or the trip is baffling.
+ */
+export function requestStorageAccess() {
+  if (!isAndroid() || typeof window.AndroidPlayer.requestStorageAccess !== 'function') return;
+  try {
+    window.AndroidPlayer.requestStorageAccess();
+  } catch {
+    /* older build without the bridge method — the settings UI already
+       explains where files land, so there is nothing to recover from. */
+  }
+}
+
+/**
  * In-app updates.
  *
  * Ask Android to look for a newer GitHub release. The check is async on the

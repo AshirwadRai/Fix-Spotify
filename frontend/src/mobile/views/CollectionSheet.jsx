@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { ChevronLeft, Play, Heart, Download, Shuffle } from 'lucide-react';
 import { api } from '../../api';
 import { usePlayer } from '../../store/PlayerContext';
@@ -27,6 +27,27 @@ export function CollectionSheet({ target, onClose, onMenu, onOpenArtist, onOpenA
 
   const image = data?.image || data?.artwork_url || target?.image || '';
   const rgb = useDominantColor(image);
+
+  // Scroll-linked hero collapse. `fade` runs 0 -> 1 over the first HERO_FADE_PX
+  // of scroll: the portrait dissolves and drifts up while the songs rise over
+  // it, and the compact title fades in to take its place.
+  //
+  // rAF-gated because scroll fires far faster than the screen refreshes, and a
+  // setState per event would queue renders the user never sees. Only opacity and
+  // transform are animated — both composite on the GPU, so the list stays smooth.
+  const HERO_FADE_PX = 180;
+  const [fade, setFade] = useState(0);
+  const ticking = useRef(false);
+
+  const onScroll = useCallback((e) => {
+    const top = e.currentTarget.scrollTop;
+    if (ticking.current) return;
+    ticking.current = true;
+    requestAnimationFrame(() => {
+      setFade(Math.min(1, Math.max(0, top / HERO_FADE_PX)));
+      ticking.current = false;
+    });
+  }, []);
 
   useEffect(() => {
     if (!target) return;
@@ -70,40 +91,71 @@ export function CollectionSheet({ target, onClose, onMenu, onOpenArtist, onOpenA
 
   return (
     <div className="absolute inset-0 z-20 bg-spotify-base flex flex-col">
-      {/* Hero */}
+      {/* Sticky bar. It starts transparent over the hero and turns solid as the
+          hero dissolves, so the back button is always legible against whatever
+          is behind it. */}
       <div
-        className="shrink-0 pt-safe"
-        style={{ background: `linear-gradient(180deg, ${bg} 0%, rgba(18,18,18,0.9) 100%)` }}
+        className="shrink-0 pt-safe relative z-10 transition-shadow duration-base"
+        style={{
+          background: fade > 0.02
+            ? `rgba(18,18,18,${0.35 + fade * 0.6})`
+            : 'transparent',
+          backdropFilter: fade > 0.02 ? 'blur(12px)' : 'none',
+        }}
       >
-        <div className="flex items-center h-14 px-2">
-          <button type="button" onClick={onClose} aria-label="Back" className="tap p-2">
+        <div className="flex items-center h-14 px-2 gap-1">
+          <button type="button" onClick={onClose} aria-label="Back" className="tap p-2 shrink-0">
             <ChevronLeft size={26} />
           </button>
-        </div>
-
-        <div className="px-4 pb-4 flex flex-col items-center">
-          <div
-            className={`w-40 h-40 bg-black/30 overflow-hidden shadow-2xl ${
-              isArtist ? 'rounded-full' : 'rounded-md'
-            }`}
+          {/* Takes over from the hero title, rather than duplicating it. */}
+          <h2
+            className="min-w-0 flex-1 truncate text-[16px] font-bold"
+            style={{ opacity: Math.max(0, (fade - 0.55) / 0.45) }}
+            aria-hidden={fade < 0.55}
           >
-            {image ? <img src={image} alt="" className="w-full h-full object-cover" /> : null}
-          </div>
-
-          <h1 className="text-2xl font-bold text-center mt-4 line-clamp-2">
             {cleanText(data?.name || target.name)}
-          </h1>
-          {!isArtist && (
-            <p className="text-[13px] text-white/70 mt-1 text-center">
-              {cleanText(data?.artist || target.artist)}
-              {tracks.length > 0 ? ` · ${tracks.length} songs` : ''}
-            </p>
-          )}
+          </h2>
         </div>
       </div>
 
+      {/* The hero now lives INSIDE the scroll region, so it travels away with
+          the content instead of being pinned above it. */}
+      <div className="scroll-y flex-1 -mt-14" onScroll={onScroll}>
+        <div
+          className="pt-14"
+          style={{ background: `linear-gradient(180deg, ${bg} 0%, rgba(18,18,18,0.9) 100%)` }}
+        >
+          <div
+            className="px-4 pb-4 pt-4 flex flex-col items-center will-change-transform"
+            style={{
+              opacity: 1 - fade,
+              // Drifts up slightly faster than the scroll, so the songs feel like
+              // they're rising over it rather than pushing it.
+              transform: `translateY(${fade * -28}px) scale(${1 - fade * 0.08})`,
+            }}
+          >
+            <div
+              className={`w-40 h-40 bg-black/30 overflow-hidden shadow-2xl ${
+                isArtist ? 'rounded-full' : 'rounded-md'
+              }`}
+            >
+              {image ? <img src={image} alt="" className="w-full h-full object-cover" /> : null}
+            </div>
+
+            <h1 className="text-2xl font-bold text-center mt-4 line-clamp-2">
+              {cleanText(data?.name || target.name)}
+            </h1>
+            {!isArtist && (
+              <p className="text-[13px] text-white/70 mt-1 text-center">
+                {cleanText(data?.artist || target.artist)}
+                {tracks.length > 0 ? ` · ${tracks.length} songs` : ''}
+              </p>
+            )}
+          </div>
+        </div>
+
       {/* Actions */}
-      <div className="shrink-0 flex items-center gap-4 px-4 py-3 bg-spotify-base">
+      <div className="flex items-center gap-4 px-4 py-3 bg-spotify-base">
         {!isArtist && (
           <>
             <button
@@ -163,8 +215,8 @@ export function CollectionSheet({ target, onClose, onMenu, onOpenArtist, onOpenA
         </button>
       </div>
 
-      {/* Tracks */}
-      <div className="scroll-y flex-1">
+      {/* Tracks — inside the same scroll container as the hero above. */}
+      <div>
         {loading && (
           <div className="px-4 space-y-3 pt-2">
             {[...Array(6)].map((_, i) => (
@@ -234,7 +286,8 @@ export function CollectionSheet({ target, onClose, onMenu, onOpenArtist, onOpenA
           </p>
         )}
 
-        <div className="h-6" />
+          <div className="h-6" />
+        </div>
       </div>
     </div>
   );

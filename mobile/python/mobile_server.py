@@ -33,6 +33,7 @@ What is NOT here (vs. the desktop backend)
                source advertises instead of probing the bytes.
 """
 
+import hmac
 import io
 import json
 import os
@@ -134,8 +135,8 @@ _lyrics_session = _build_lyrics_session()
 
 
 def get_default_download_dir() -> str:
-    """On Android this is the app-specific external dir — no runtime permission
-    needed on any API level, visible to file managers, cleaned up on uninstall."""
+    """The user's custom folder if set, else Downloads/Fix_Spotify/music, else
+    the app-private dir. See android_env.downloads_dir() for why."""
     return android_env.downloads_dir()
 
 
@@ -284,6 +285,42 @@ def _body() -> Dict[str, Any]:
 # App
 # ──────────────────────────────────────────────────────────────────────────────
 app = Flask(__name__, static_folder=None)
+
+# Set by start_server() from Kotlin. Empty on a desktop test run, which disables
+# the check below so `python mobile_server.py` still works.
+_API_TOKEN = ""
+
+
+@app.before_request
+def _require_token():
+    """Gate /api/* on the per-launch token.
+
+    Loopback is NOT a security boundary on Android: every other app on the phone
+    can reach 127.0.0.1:8765. Unguarded, any installed app could drive this
+    server — enqueue downloads, read the local library, or (now that the app can
+    hold All-files access) repoint downloads at an arbitrary path via
+    /api/downloads/dir.
+
+    Only /api/* is gated. The SPA's own HTML/JS/CSS stay open because they are
+    just our static assets and carry no secret — in particular the token is NOT
+    in them; it reaches the page over the Kotlin JS bridge instead.
+
+    The token rides in the query string rather than a header because <audio
+    src="/api/proxy_stream?..."> cannot set headers, and it must be authorised
+    like everything else.
+    """
+    if not _API_TOKEN:
+        return None                                  # desktop test run
+    if not request.path.startswith("/api/"):
+        return None                                  # SPA assets
+    if request.method == "OPTIONS":
+        return None                                  # CORS preflight
+
+    supplied = request.args.get("_t") or request.headers.get("X-Fix-Token") or ""
+    # compare_digest: constant-time, so a caller can't time-probe the token.
+    if not hmac.compare_digest(supplied, _API_TOKEN):
+        return jsonify({"error": "forbidden"}), 403
+    return None
 
 
 @app.after_request
@@ -594,7 +631,39 @@ def list_downloads():
 
 @app.get("/api/downloads/info")
 def downloads_info():
-    return jsonify({"download_dir": get_default_download_dir()})
+    # `download_dir` stays for the existing frontend contract; the rest tells the
+    # Settings screen whether we actually landed in the folder the user asked for.
+    return jsonify({
+        "download_dir": get_default_download_dir(),
+        **android_env.downloads_status(),
+    })
+
+
+@app.post("/api/downloads/dir")
+def set_downloads_dir():
+    """Choose a custom download folder (or clear it, restoring the default).
+
+    Refuses a folder we cannot actually write to, rather than accepting it and
+    letting every later download fail with no explanation.
+    """
+    path = (_body().get("path") or "").strip()
+
+    settings = android_env.read_settings()
+    if not path:
+        settings.pop("download_dir", None)
+        android_env.write_settings(settings)
+        return jsonify({"ok": True, **android_env.downloads_status()})
+
+    if not android_env.is_writable(path):
+        return jsonify({
+            "ok": False,
+            "error": "Can't write to that folder. Grant “All files access” in "
+                     "Android Settings, or pick a different folder.",
+        }), 400
+
+    settings["download_dir"] = path
+    android_env.write_settings(settings)
+    return jsonify({"ok": True, **android_env.downloads_status()})
 
 
 @app.get("/api/downloads/local")
@@ -1291,7 +1360,8 @@ def _warm_up():
 
 
 def start_server(files_dir: str, downloads_dir: str, web_dir: str,
-                 cache_dir: str, port: int = 8765) -> int:
+                 cache_dir: str, port: int = 8765, public_dir: str = "",
+                 api_token: str = "") -> int:
     """Entry point invoked from BackendService.kt.
 
     Blocks forever serving requests, so Kotlin must call it on a background
@@ -1299,7 +1369,10 @@ def start_server(files_dir: str, downloads_dir: str, web_dir: str,
     """
     global _search_service, _download_manager, _enricher, _server
 
-    android_env.configure(files_dir, downloads_dir, web_dir, cache_dir)
+    global _API_TOKEN
+    _API_TOKEN = api_token or ""
+
+    android_env.configure(files_dir, downloads_dir, web_dir, cache_dir, public_dir)
     android_env.install_stdio_logging()
 
     print(f"[backend] starting on 127.0.0.1:{port}")

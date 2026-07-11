@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { ChevronLeft, Play, Shuffle, Heart, Music2, Trash2, Pencil, WifiOff } from 'lucide-react';
+import { ChevronLeft, Play, Shuffle, Heart, Music2, Trash2, Pencil, WifiOff, Camera } from 'lucide-react';
 import { usePlayer } from '../../store/PlayerContext';
 import { TrackItem } from '../components/TrackItem';
+import { PlaylistCover } from '../../components/PlaylistCover';
 import { usePlayFrom } from '../usePlayFrom';
-import { deletePlaylist, renamePlaylist } from '../usePlaylists';
+import { deletePlaylist, renamePlaylist, setPlaylistImage } from '../usePlaylists';
 import { toast } from '../../utils/toast';
 
 /**
@@ -13,11 +14,57 @@ import { toast } from '../../utils/toast';
  * (CollectionSheet is the remote counterpart — it fetches an album/artist/
  * playlist from the backend.)
  */
+// A phone photo is 3-8 MB, and localStorage caps out around 5-10 MB for the
+// WHOLE app. Storing one raw would evict the user's library. Downscale to a
+// square thumbnail — 320px is more than a 160px cover ever needs, even at 2x.
+const COVER_PX = 320;
+
+function fileToCoverDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Could not read that image'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('That file is not an image'));
+      img.onload = () => {
+        // Center-crop to a square so the cover never appears stretched.
+        const side = Math.min(img.width, img.height);
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = COVER_PX;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(
+          img,
+          (img.width - side) / 2, (img.height - side) / 2, side, side,
+          0, 0, COVER_PX, COVER_PX
+        );
+        resolve(canvas.toDataURL('image/jpeg', 0.82));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 export function TrackListSheet({ view, onClose, onMenu }) {
   const { currentTrack, isPlaying, playCollection } = usePlayer();
   const playFrom = usePlayFrom();
   const [renaming, setRenaming] = useState(false);
   const [name, setName] = useState(view?.title || '');
+  const [cover, setCover] = useState(view?.image || null);
+
+  const onPickCover = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';           // let the same file be re-picked after a reset
+    if (!file || !view?.id) return;
+    try {
+      const dataUrl = await fileToCoverDataUrl(file);
+      setPlaylistImage(view.id, dataUrl);
+      setCover(dataUrl);
+      toast('Cover updated');
+    } catch (err) {
+      toast(err.message || 'Could not use that image');
+    }
+  };
 
   if (!view) return null;
 
@@ -70,11 +117,39 @@ export function TrackListSheet({ view, onClose, onMenu }) {
         </div>
 
         <div className="px-4 pb-4 flex flex-col items-center">
-          <div
-            className={`w-40 h-40 rounded-md shadow-2xl bg-gradient-to-br ${gradient} flex items-center justify-center`}
-          >
-            <HeroIcon size={54} className="text-white" fill={isLiked ? 'white' : 'none'} />
-          </div>
+          {isPlaylist ? (
+            // Tap the cover to replace it. Liked/offline keep their fixed
+            // gradient identity — those aren't the user's to rebrand.
+            <label className="tap relative w-40 h-40 shrink-0 cursor-pointer rounded-md shadow-2xl overflow-hidden">
+              <PlaylistCover tracks={tracks} image={cover} size={160} />
+              <input
+                type="file"
+                accept="image/*"
+                className="sr-only"
+                onChange={onPickCover}
+              />
+              <span className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-1.5 bg-black/60 py-1.5 text-[11px] font-medium text-white">
+                <Camera size={13} />
+                {cover ? 'Change cover' : 'Add cover'}
+              </span>
+            </label>
+          ) : (
+            <div
+              className={`w-40 h-40 rounded-md shadow-2xl bg-gradient-to-br ${gradient} flex items-center justify-center`}
+            >
+              <HeroIcon size={54} className="text-white" fill={isLiked ? 'white' : 'none'} />
+            </div>
+          )}
+
+          {isPlaylist && cover && (
+            <button
+              type="button"
+              onClick={() => { setPlaylistImage(view.id, null); setCover(null); toast('Cover reset'); }}
+              className="tap mt-2 text-[12px] text-spotify-text-subdued underline"
+            >
+              Reset to song artwork
+            </button>
+          )}
 
           {renaming ? (
             <form

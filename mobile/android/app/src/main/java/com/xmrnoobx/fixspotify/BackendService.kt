@@ -11,6 +11,7 @@ import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Build
+import android.os.Environment
 import android.os.IBinder
 import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaSessionCompat
@@ -23,6 +24,7 @@ import com.chaquo.python.Python
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 
@@ -41,6 +43,24 @@ class BackendService : Service() {
     companion object {
         const val PORT = 8765
         const val BASE_URL = "http://127.0.0.1:$PORT"
+
+        /**
+         * Per-launch secret guarding /api/*.
+         *
+         * The Flask server listens on loopback, which on Android is NOT private:
+         * every other app on the device can reach 127.0.0.1:8765 too. Without a
+         * secret, any installed app could drive this one's API — and now that the
+         * app can hold All-files access, that includes pointing its downloads at
+         * an arbitrary path on shared storage.
+         *
+         * The token deliberately never appears in the served HTML (another app
+         * could simply fetch the page and read it). It is handed to the page
+         * through the JavaScript bridge, which only OUR WebView has.
+         *
+         * Regenerated every launch: it is a capability, not a credential, and
+         * nothing needs it to survive a restart.
+         */
+        val API_TOKEN: String = UUID.randomUUID().toString()
 
         private const val TAG = "FixSpotifySvc"
         private const val CHANNEL_ID = "fixspotify_playback"
@@ -144,12 +164,19 @@ class BackendService : Service() {
     private fun startPythonBackend() {
         val webDir = extractWebAssets()
 
-        // Downloads land in the app-specific external dir. No runtime permission
-        // is needed for it on ANY Android version, and it is still visible to
-        // file managers and over USB.
-        val downloadsDir = File(
+        // The app-specific external dir. Always writable with no permission, but
+        // invisible in file managers and DELETED on uninstall — so it is the
+        // fallback, not the destination.
+        val privateDir = File(
             getExternalFilesDir(null) ?: filesDir, "Music"
         ).apply { mkdirs() }
+
+        // The phone's real Download folder. Python prefers
+        // <public>/Fix_Spotify/music and falls back to privateDir if writing
+        // there is refused (i.e. All-files access not granted).
+        val publicDir = Environment
+            .getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            ?.absolutePath ?: ""
 
         thread(name = "python-backend", isDaemon = true) {
             try {
@@ -159,10 +186,12 @@ class BackendService : Service() {
                     .callAttr(
                         "start_server",
                         filesDir.absolutePath,
-                        downloadsDir.absolutePath,
+                        privateDir.absolutePath,
                         webDir.absolutePath,
                         cacheDir.absolutePath,
-                        PORT
+                        PORT,
+                        publicDir,
+                        API_TOKEN
                     )
                 // start_server() blocks in serve_forever(); returning means shutdown.
                 Log.i(TAG, "Python backend stopped")

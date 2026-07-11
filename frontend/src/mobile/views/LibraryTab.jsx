@@ -4,6 +4,7 @@ import { useLikedSongs } from '../../utils/likes';
 import { useSavedCollections } from '../../utils/collections';
 import { useOfflineTracks } from '../../utils/downloads';
 import { usePlaylists, createPlaylist } from '../usePlaylists';
+import { PlaylistCover } from '../../components/PlaylistCover';
 import { cleanText } from '../../utils/tracks';
 import { toast } from '../../utils/toast';
 
@@ -129,6 +130,9 @@ export function LibraryTab({ onOpenList, onOpenCollection }) {
             <Row
               key={p.id}
               Icon={Music2}
+              cover={
+                <PlaylistCover tracks={p.tracks || []} image={p.image} size={56} />
+              }
               title={p.name}
               subtitle={`Playlist · ${(p.tracks || []).length} songs`}
               onClick={() =>
@@ -136,6 +140,7 @@ export function LibraryTab({ onOpenList, onOpenCollection }) {
                   kind: 'playlist',
                   id: p.id,
                   title: p.name,
+                  image: p.image,
                   tracks: p.tracks || [],
                 })
               }
@@ -167,19 +172,21 @@ export function LibraryTab({ onOpenList, onOpenCollection }) {
   );
 }
 
-function Row({ image, Icon, gradient, filled, title, subtitle, onClick }) {
+// `cover` is an escape hatch for a rendered element (the playlist mosaic);
+// `image` stays the simple URL path used by albums.
+function Row({ image, cover, Icon, gradient, filled, title, subtitle, onClick }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="tap w-full flex items-center gap-3 px-4 py-2.5 text-left active:bg-white/5"
+      className="tap w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors duration-fast active:bg-white/5"
     >
       <div
         className={`w-14 h-14 rounded overflow-hidden shrink-0 flex items-center justify-center ${
           gradient ? `bg-gradient-to-br ${gradient}` : 'bg-spotify-highlight'
         }`}
       >
-        {image ? (
+        {cover || (image ? (
           <img src={image} alt="" className="w-full h-full object-cover" />
         ) : (
           <Icon
@@ -187,7 +194,7 @@ function Row({ image, Icon, gradient, filled, title, subtitle, onClick }) {
             className={gradient ? 'text-white' : 'text-spotify-text-subdued'}
             fill={filled ? 'white' : 'none'}
           />
-        )}
+        ))}
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-[15px] truncate">{title}</p>

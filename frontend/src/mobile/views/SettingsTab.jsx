@@ -1,12 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Check, RotateCcw, HardDrive, Info, ChevronLeft, RefreshCw } from 'lucide-react';
 import {
   useAppSettings, writeAppSetting, writeAppSettings, DEFAULT_SETTINGS,
 } from '../../utils/settings';
-import { useDownloads } from '../../store/DownloadsContext';
+import { api } from '../../api';
 import { toast } from '../../utils/toast';
 import {
   isAndroid, getAppVersion, checkForUpdate, installUpdate, registerUpdateHandlers,
+  requestStorageAccess,
 } from '../androidBridge';
 
 const QUALITIES = [
@@ -88,7 +89,6 @@ function Choice({ label, hint, selected, onClick }) {
 
 export function SettingsTab({ onClose }) {
   const settings = useAppSettings();
-  const { downloadDir } = useDownloads();
 
   return (
     <div className="flex flex-col h-full bg-spotify-base">
@@ -156,21 +156,7 @@ export function SettingsTab({ onClose }) {
           />
         </Section>
 
-        <Section title="Storage">
-          <div className="flex items-start gap-3 py-1">
-            <HardDrive size={18} className="text-spotify-text-subdued shrink-0 mt-0.5" />
-            <div className="min-w-0">
-              <p className="text-[14px]">Downloads folder</p>
-              <p className="text-[11px] text-spotify-essential-subdued break-all mt-1 leading-snug">
-                {downloadDir || 'Not available yet'}
-              </p>
-              <p className="text-[12px] text-spotify-text-subdued mt-2 leading-snug">
-                Files are stored in the app&apos;s own folder, so no storage permission is
-                needed. Uninstalling the app removes them.
-              </p>
-            </div>
-          </div>
-        </Section>
+        <StorageSection />
 
         {/* The desktop build has a YouTube section here. It is deliberately absent:
             YouTube needs a JavaScript runtime (Deno) to solve its signature
@@ -225,6 +211,126 @@ export function SettingsTab({ onClose }) {
  * So this flow is lossless, and the copy says so, because that's exactly the
  * thing users are afraid of.
  */
+/**
+ * Where downloaded songs go.
+ *
+ * The default is Downloads/Fix_Spotify/music so files are visible in any file
+ * manager and survive an uninstall. Android 11+ only allows a real file path
+ * there with All-files access, which cannot be granted from an in-app dialog —
+ * the user has to flip a toggle in system Settings. So we explain WHY before
+ * sending them there, and if they decline we say plainly where files land
+ * instead, rather than letting downloads quietly fail.
+ */
+function StorageSection() {
+  const [info, setInfo] = useState(null);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+
+  const load = useCallback(() => {
+    api.getDownloadsInfo()
+      .then(setInfo)
+      .catch(() => setInfo(null));
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  // Coming back from the system permission screen doesn't remount us, so
+  // re-check on focus — otherwise the UI would still claim access was denied.
+  useEffect(() => {
+    const onFocus = () => load();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [load]);
+
+  const save = async (path) => {
+    try {
+      const res = await api.setDownloadsDir(path);
+      if (res?.ok === false) { toast(res.error || 'Could not use that folder'); return; }
+      setInfo(res);
+      setEditing(false);
+      toast(path ? 'Download folder updated' : 'Reset to the default folder');
+    } catch {
+      toast('Could not change the folder');
+    }
+  };
+
+  // Warn only when songs ACTUALLY landed in private storage — not merely when a
+  // permission is missing, which may not matter if a custom folder is in use.
+  const blocked = info?.using_fallback;
+
+  return (
+    <Section title="Storage">
+      <div className="flex items-start gap-3 py-1">
+        <HardDrive size={18} className="text-spotify-text-subdued shrink-0 mt-0.5" />
+        <div className="min-w-0 flex-1">
+          <p className="text-[14px]">Downloads folder</p>
+          <p className="text-[11px] text-spotify-essential-subdued break-all mt-1 leading-snug">
+            {info?.path || 'Not available yet'}
+          </p>
+
+          {blocked && (
+            <div className="mt-2 rounded-md bg-spotify-essential-warning/10 p-2.5">
+              <p className="text-[12px] text-spotify-essential-warning leading-snug">
+                Songs are going to a private app folder, which file managers can&apos;t see
+                and Android deletes when you uninstall.
+              </p>
+              <p className="text-[12px] text-spotify-text-subdued mt-1.5 leading-snug">
+                To save into Downloads/Fix_Spotify/music instead, Android needs you to
+                turn on “All files access” yourself — an app can&apos;t grant it.
+              </p>
+              <button
+                type="button"
+                onClick={() => { requestStorageAccess(); toast('Turn on “All files access”, then come back'); }}
+                className="tap mt-2 rounded-full bg-spotify-essential-warning px-3 py-1.5 text-[12px] font-semibold text-black"
+              >
+                Open Android settings
+              </button>
+            </div>
+          )}
+
+          {editing ? (
+            <form
+              className="mt-2 flex gap-2"
+              onSubmit={(e) => { e.preventDefault(); save(draft.trim()); }}
+            >
+              <input
+                autoFocus
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder="/storage/emulated/0/Music"
+                enterKeyHint="done"
+                className="h-9 min-w-0 flex-1 rounded bg-white/10 px-2 text-[12px] outline-none"
+              />
+              <button type="submit" className="tap rounded-full bg-white px-3 text-[12px] font-semibold text-black">
+                Save
+              </button>
+            </form>
+          ) : (
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => { setDraft(info?.custom || info?.path || ''); setEditing(true); }}
+                className="tap rounded-full bg-white/10 px-3 py-1.5 text-[12px]"
+              >
+                Choose folder
+              </button>
+              {info?.custom && (
+                <button
+                  type="button"
+                  onClick={() => save('')}
+                  className="tap rounded-full bg-white/10 px-3 py-1.5 text-[12px] text-spotify-text-subdued"
+                >
+                  Use default
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </Section>
+  );
+}
+
 function UpdateSection() {
   const [state, setState] = useState('idle');   // idle | checking | current | found | downloading | failed
   const [info, setInfo] = useState(null);
