@@ -4,7 +4,7 @@ version = "1.0.0"
 description = "Music Downloader - Multi-source music search and download"
 authors = ["XMrNooBX"]
 edition = "2024"
-license = "MIT"
+license = "GPL-3.0-only"
 rust-version = "1.88"
 
 [build-dependencies]
