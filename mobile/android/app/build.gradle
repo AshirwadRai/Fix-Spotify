@@ -1,0 +1,194 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+    id 'com.chaquo.python'
+}
+
+// Repo root (…/Fix-Spotify). rootDir here is …/Fix-Spotify/mobile/android.
+def repoRoot = file("$rootDir/../..")
+def pythonSrc = file("src/main/python")
+
+android {
+    namespace 'com.xmrnoobx.fixspotify'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.xmrnoobx.fixspotify"
+        // 26 = notification channels + foreground services, which the backend
+        // service relies on to survive being backgrounded during playback.
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName "1.0.0"
+
+        ndk {
+            // Chaquopy ships a native CPython per ABI, and each one adds ~10 MB
+            // to the APK. arm64 covers every phone made in the last decade;
+            // x86_64 is here only so the app runs in the Android emulator.
+            // Drop x86_64 to roughly halve the APK for a real-device release.
+            abiFilters 'arm64-v8a', 'x86_64'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false          // Chaquopy + WebView JS bridge dislike R8 defaults
+            shrinkResources false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'),
+                          'proguard-rules.pro'
+            // Ships with the debug signing key so `assembleRelease` produces an
+            // installable APK out of the box. Swap in your own keystore before
+            // distributing to anyone else.
+            signingConfig signingConfigs.debug
+        }
+        debug {
+            applicationIdSuffix ".debug"
+        }
+    }
+
+    buildFeatures {
+        // AGP 8 stopped generating BuildConfig unless asked. MainActivity reads
+        // BuildConfig.DEBUG to enable WebView remote debugging (chrome://inspect)
+        // in debug builds only.
+        buildConfig true
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions { jvmTarget = '17' }
+
+    packagingOptions {
+        // Several transitive Python deps ship duplicate metadata.
+        resources.excludes += ['META-INF/DEPENDENCIES', 'META-INF/LICENSE*', 'META-INF/NOTICE*']
+    }
+}
+
+chaquopy {
+    defaultConfig {
+        version = "3.11"
+
+        pip {
+            // EVERY package here must be pure Python — Chaquopy can only install
+            // a native wheel if it has been built for Android specifically.
+            //
+            // Deliberately ABSENT (and why):
+            //   fastapi/uvicorn/pydantic — pydantic-core is a Rust extension.
+            //                              Flask replaces them.
+            //   rapidfuzz               — C++ extension. components/ already
+            //                              falls back to difflib when it is
+            //                              missing, so nothing to change.
+            //   ffmpeg-python           — no ffmpeg binary on Android.
+            //   browser-cookie3         — reads DESKTOP browser cookie stores.
+            //   yt-dlp-ejs              — YouTube JS challenge solver; needs Deno.
+            install "flask==3.0.3"
+            install "requests>=2.31.0"
+            install "mutagen==1.47.0"
+
+            // yt-dlp is pure Python and is what SoundCloud extraction runs on.
+            // SoundCloud needs no JS runtime — only YouTube does — so it works
+            // here even though YouTube does not.
+            install "yt-dlp>=2024.8.6"
+        }
+
+        // Skipping .pyc precompilation keeps build times sane; first import is
+        // marginally slower, which the warm-up thread already hides.
+        pyc { src = false }
+    }
+
+    sourceSets {
+        getByName("main") {
+            srcDir "src/main/python"
+        }
+    }
+}
+
+dependencies {
+    implementation 'androidx.core:core-ktx:1.13.1'
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'androidx.activity:activity-ktx:1.9.1'
+    // MediaSessionCompat -> the lock-screen / notification transport controls
+    // that navigator.mediaSession in the WebView drives.
+    implementation 'androidx.media:media:1.7.0'
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Source sync
+// ─────────────────────────────────────────────────────────────────────────────
+// components/ and mobile/python/ are the single source of truth and are NOT
+// duplicated into the Android project by hand. Gradle copies them in on every
+// build so the APK can never drift from the code you actually edit.
+// ─────────────────────────────────────────────────────────────────────────────
+
+tasks.register('syncPythonSources', Sync) {
+    description = 'Copy the backend (components/ + mobile/python/) into the APK.'
+    into pythonSrc
+
+    from("$repoRoot/mobile/python") {
+        include '*.py'
+    }
+    from("$repoRoot/components") {
+        into 'components'
+        exclude '__pycache__/**'
+        // youtube_downloader.py is excluded from the APK: it can never work
+        // without a JS runtime, and it is the single largest module. Nothing
+        // imports it, because mobile_server.py makes UnifiedSearchService refuse
+        // to build a YouTube client (see the kill-switch there).
+        exclude 'youtube_downloader.py'
+    }
+
+    doFirst {
+        if (!file("$repoRoot/components").exists()) {
+            throw new GradleException("components/ not found at $repoRoot/components")
+        }
+    }
+}
+
+// components/ is a package, so it needs an __init__.py to import as one. The
+// desktop build gets away without it via implicit namespace packages; be explicit.
+tasks.register('ensurePythonPackage') {
+    dependsOn 'syncPythonSources'
+    doLast {
+        def init = file("$pythonSrc/components/__init__.py")
+        if (!init.exists()) {
+            init.parentFile.mkdirs()
+            init.text = '# Namespace package for the vendored backend components.\n'
+        }
+    }
+}
+
+tasks.register('syncWebAssets', Sync) {
+    description = 'Copy the built mobile React bundle into the APK assets.'
+    def dist = file("$repoRoot/frontend/dist-mobile")
+    from dist
+    into file("src/main/assets/web")
+
+    doFirst {
+        if (!dist.exists() || (dist.listFiles()?.length ?: 0) == 0) {
+            throw new GradleException(
+                "Mobile web bundle missing at ${dist}.\n" +
+                "Build it first:\n" +
+                "    cd ${repoRoot}/frontend\n" +
+                "    npm install\n" +
+                "    npm run build:mobile"
+            )
+        }
+    }
+}
+
+preBuild.dependsOn 'ensurePythonPackage', 'syncWebAssets'
+
+// Chaquopy's merge*PythonSources tasks READ src/main/python — the very directory
+// syncPythonSources WRITES. Gradle cannot infer that ordering on its own, and
+// since 8.x it hard-fails rather than risk running them in the wrong order.
+// State the dependency explicitly.
+tasks.matching { it.name ==~ /merge(Debug|Release)PythonSources/ }.configureEach {
+    dependsOn 'ensurePythonPackage'
+}
+
+// The synced trees are build outputs, not sources — never commit them.
+clean {
+    delete pythonSrc
+    delete file("src/main/assets/web")
+}

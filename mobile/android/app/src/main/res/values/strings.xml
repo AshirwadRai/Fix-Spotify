@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Fix_Spotify</string>
+    <string name="starting_backend">Starting music engine…</string>
+</resources>

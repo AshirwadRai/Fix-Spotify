@@ -1,0 +1,21 @@
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+        // Chaquopy (Python-on-Android) is not on Maven Central.
+        maven { url = uri("https://chaquo.com/maven") }
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode = RepositoriesMode.FAIL_ON_PROJECT_REPOS
+    repositories {
+        google()
+        mavenCentral()
+        maven { url = uri("https://chaquo.com/maven") }
+    }
+}
+
+rootProject.name = "Fix_Spotify"
+include(":app")

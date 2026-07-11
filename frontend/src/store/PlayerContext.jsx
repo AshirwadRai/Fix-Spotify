@@ -11,6 +11,25 @@ function getAppSettings() {
   return readAppSettings();
 }
 
+/**
+ * A track is playable if it has a streaming source OR a file on disk.
+ *
+ * `isPlayableTrack`/`playableTracks` only know about streaming sources, so they
+ * discard downloaded tracks that were rebuilt from disk (mergeScannedTracks
+ * gives those `sources: {}`). Filtering a queue with them silently dropped
+ * every offline track — so a downloaded album played nothing offline.
+ *
+ * These two live here rather than in utils/tracks.js because downloads.js
+ * already imports from tracks.js; putting them there would be a cycle.
+ */
+function isPlayableOrOffline(track) {
+  return !!getPlayableSource(track) || !!getOfflineEntry(track);
+}
+
+function queueableTracks(tracks = []) {
+  return tracks.map(normalizeTrack).filter(isPlayableOrOffline);
+}
+
 /** Build the proxy stream URL honouring the user's audio-quality setting. */
 function buildProxyUrl(streamUrl, source) {
   const bitrate = qualityToBitrate(readAppSettings().audioQuality);
@@ -668,13 +687,18 @@ export function PlayerProvider({ children }) {
 
     const audio = audioRef.current;
     const playableTrack = normalizeTrack(track);
-    if (!getPlayableSource(playableTrack)) {
+    // A DOWNLOADED track has no streaming sources of its own when it was
+    // rebuilt from disk by /api/downloads/local (mergeScannedTracks gives it
+    // `sources: {}`). Rejecting on getPlayableSource alone therefore made
+    // offline files unplayable — the exact opposite of the "offline-FIRST"
+    // promise below. A local file is a perfectly good source.
+    if (!getPlayableSource(playableTrack) && !getOfflineEntry(playableTrack)) {
       setPlaybackError("This track is not playable yet");
       setIsPlaying(false);
       setIsLoading(false);
       return;
     }
-    
+
     // Push current track to history before switching
     if (currentTrack) {
       setHistory(prev => [currentTrack, ...prev.slice(0, 49)]); // keep last 50
@@ -877,7 +901,7 @@ export function PlayerProvider({ children }) {
 
   const addToQueue = useCallback((track) => {
     const playableTrack = normalizeTrack(track);
-    if (!getPlayableSource(playableTrack)) return;
+    if (!isPlayableOrOffline(playableTrack)) return;
     // Insert before the first autoplay/radio track so manual picks play first.
     setQueue(q => {
       const idx = q.findIndex(t => t._autoplay);
@@ -888,7 +912,7 @@ export function PlayerProvider({ children }) {
 
   const addNext = useCallback((track) => {
     const playableTrack = normalizeTrack(track);
-    if (!getPlayableSource(playableTrack)) return;
+    if (!isPlayableOrOffline(playableTrack)) return;
     setQueue(q => [playableTrack, ...q]);
   }, []);
 
@@ -904,7 +928,7 @@ export function PlayerProvider({ children }) {
   // the queued remainder is shuffled (and natural order remembered) so playing
   // from any list respects shuffle — the engine itself plays the queue in order.
   const replaceQueue = useCallback((tracks) => {
-    const list = playableTracks(tracks);
+    const list = queueableTracks(tracks);
     if (shuffleRef.current) {
       naturalOrderRef.current = list;
       setQueue(shuffleArray(list));
@@ -941,7 +965,7 @@ export function PlayerProvider({ children }) {
   // capturing natural order so a later un-shuffle can restore it. One command =
   // no race between setting the queue and the flag.
   const playCollection = useCallback((tracks, shuffled) => {
-    const list = playableTracks(tracks);
+    const list = queueableTracks(tracks);
     if (list.length === 0) return;
     setShuffle(shuffled);
     if (shuffled) {

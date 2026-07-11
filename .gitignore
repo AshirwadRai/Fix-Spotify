@@ -61,3 +61,15 @@ frontend/dist/
 
 # Bundled runtime binaries (deno + ffmpeg shared build) — large, fetched at build time
 vendor/
+
+# ── Mobile (Android) build outputs ──────────────────────────────────────────
+frontend/dist-mobile/
+# Synced from components/ + mobile/python/ by Gradle (syncPythonSources)
+mobile/android/app/src/main/python/
+# Synced from frontend/dist-mobile/ by Gradle (syncWebAssets)
+mobile/android/app/src/main/assets/web/
+mobile/android/.gradle/
+mobile/android/build/
+mobile/android/app/build/
+mobile/android/local.properties
+mobile/python/.devroot*/

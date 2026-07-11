@@ -1,0 +1,215 @@
+import { Check, RotateCcw, HardDrive, Info, ChevronLeft } from 'lucide-react';
+import {
+  useAppSettings, writeAppSetting, writeAppSettings, DEFAULT_SETTINGS,
+} from '../../utils/settings';
+import { useDownloads } from '../../store/DownloadsContext';
+import { toast } from '../../utils/toast';
+
+const QUALITIES = [
+  { value: 0, label: 'Auto', hint: 'Adjusts automatically based on source' },
+  { value: 96, label: 'Low', hint: '96 kbps — saves mobile data' },
+  { value: 128, label: 'Normal', hint: '128 kbps — balanced' },
+  { value: 256, label: 'High', hint: '256 kbps — better quality' },
+  { value: 320, label: 'Very High', hint: '320 kbps — best quality' },
+];
+
+const CROSSFADE = [
+  { value: 0, label: 'Off' },
+  { value: 6, label: '6s' },
+  { value: 12, label: '12s' },
+];
+
+function Section({ title, subtitle, children }) {
+  return (
+    <section className="px-4 py-5 border-b border-white/[0.07]">
+      <h2 className="text-[17px] font-bold">{title}</h2>
+      {subtitle && (
+        <p className="text-[13px] text-spotify-text-subdued mt-0.5 mb-3">{subtitle}</p>
+      )}
+      <div className={subtitle ? '' : 'mt-3'}>{children}</div>
+    </section>
+  );
+}
+
+/** A full-width row with a native-feeling toggle. 56px tall = a comfortable tap. */
+function Toggle({ label, hint, checked, onChange }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className="w-full flex items-center gap-4 py-3 text-left"
+    >
+      <div className="flex-1 min-w-0">
+        <p className="text-[15px]">{label}</p>
+        {hint && <p className="text-[12px] text-spotify-text-subdued mt-0.5 leading-snug">{hint}</p>}
+      </div>
+      <span
+        className={`shrink-0 w-12 h-7 rounded-full p-0.5 transition-colors ${
+          checked ? 'bg-spotify-essential-bright-accent' : 'bg-white/25'
+        }`}
+      >
+        <span
+          className={`block w-6 h-6 rounded-full bg-white transition-transform ${
+            checked ? 'translate-x-5' : 'translate-x-0'
+          }`}
+        />
+      </span>
+    </button>
+  );
+}
+
+/** Radio row with a checkmark — the standard iOS/Android single-select pattern. */
+function Choice({ label, hint, selected, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={selected}
+      className="w-full flex items-center gap-3 py-3 text-left active:bg-white/5"
+    >
+      <div className="flex-1 min-w-0">
+        <p className={`text-[15px] ${selected ? 'text-spotify-essential-bright-accent' : 'text-white'}`}>
+          {label}
+        </p>
+        {hint && <p className="text-[12px] text-spotify-text-subdued mt-0.5">{hint}</p>}
+      </div>
+      {selected && (
+        <Check size={20} className="text-spotify-essential-bright-accent shrink-0" />
+      )}
+    </button>
+  );
+}
+
+export function SettingsTab({ onClose }) {
+  const settings = useAppSettings();
+  const { downloadDir } = useDownloads();
+
+  return (
+    <div className="flex flex-col h-full bg-spotify-base">
+      <div className="pt-safe shrink-0">
+        <div className="flex items-center gap-2 px-2 pt-3 pb-2">
+          {onClose && (
+            <button type="button" onClick={onClose} aria-label="Back" className="tap p-2">
+              <ChevronLeft size={26} />
+            </button>
+          )}
+          <h1 className="text-2xl font-bold">Settings</h1>
+        </div>
+      </div>
+
+      <div className="scroll-y flex-1">
+        <Section title="Audio Quality" subtitle="Choose preferred streaming bitrate">
+          {QUALITIES.map((q) => (
+            <Choice
+              key={q.value}
+              label={q.label}
+              hint={q.hint}
+              selected={Number(settings.audioQuality) === q.value}
+              onClick={() => writeAppSetting('audioQuality', q.value)}
+            />
+          ))}
+        </Section>
+
+        <Section title="Crossfade" subtitle="Smoothly fade between tracks">
+          <div className="flex gap-2">
+            {CROSSFADE.map((c) => (
+              <button
+                key={c.value}
+                type="button"
+                onClick={() => writeAppSetting('crossfadeDuration', c.value)}
+                className={`flex-1 py-2.5 rounded-full text-[14px] font-medium ${
+                  Number(settings.crossfadeDuration) === c.value
+                    ? 'bg-white text-black'
+                    : 'bg-spotify-background-tinted-base text-white'
+                }`}
+              >
+                {c.label}
+              </button>
+            ))}
+          </div>
+        </Section>
+
+        <Section title="Playback" subtitle="Autoplay and display options">
+          <Toggle
+            label="Autoplay"
+            hint="When your queue ends, keep playing songs similar to what you were listening to"
+            checked={!!settings.autoplay}
+            onChange={(v) => writeAppSetting('autoplay', v)}
+          />
+          <Toggle
+            label="Normalize Volume"
+            hint="Even out loud and quiet parts for a more consistent listening volume"
+            checked={!!settings.normalizeVolume}
+            onChange={(v) => writeAppSetting('normalizeVolume', v)}
+          />
+          <Toggle
+            label="Show Source Badge"
+            hint="Display the source indicator (JioSaavn, SoundCloud) on tracks"
+            checked={!!settings.showSourceBadge}
+            onChange={(v) => writeAppSetting('showSourceBadge', v)}
+          />
+        </Section>
+
+        <Section title="Storage">
+          <div className="flex items-start gap-3 py-1">
+            <HardDrive size={18} className="text-spotify-text-subdued shrink-0 mt-0.5" />
+            <div className="min-w-0">
+              <p className="text-[14px]">Downloads folder</p>
+              <p className="text-[11px] text-spotify-essential-subdued break-all mt-1 leading-snug">
+                {downloadDir || 'Not available yet'}
+              </p>
+              <p className="text-[12px] text-spotify-text-subdued mt-2 leading-snug">
+                Files are stored in the app&apos;s own folder, so no storage permission is
+                needed. Uninstalling the app removes them.
+              </p>
+            </div>
+          </div>
+        </Section>
+
+        {/* The desktop build has a YouTube section here. It is deliberately absent:
+            YouTube needs a JavaScript runtime (Deno) to solve its signature
+            challenge, and there is none for Android. Saying so beats leaving the
+            user wondering where the option went. */}
+        <Section title="Sources">
+          <div className="flex items-start gap-3 py-1">
+            <Info size={18} className="text-spotify-text-subdued shrink-0 mt-0.5" />
+            <div className="min-w-0">
+              <p className="text-[14px]">JioSaavn · SoundCloud</p>
+              <p className="text-[12px] text-spotify-text-subdued mt-1 leading-snug">
+                Everything runs on your phone, using your own connection — nothing is
+                routed through a server.
+              </p>
+              <p className="text-[12px] text-spotify-text-subdued mt-2 leading-snug">
+                YouTube is not available on mobile: it requires a JavaScript runtime
+                that does not exist on Android. JioSaavn streams at a higher quality
+                (320 kbps) anyway.
+              </p>
+            </div>
+          </div>
+        </Section>
+
+        <Section title="Reset">
+          <button
+            type="button"
+            onClick={() => {
+              writeAppSettings({ ...DEFAULT_SETTINGS });
+              toast('Settings reset to defaults');
+            }}
+            className="flex items-center gap-2 py-2 text-[15px] text-spotify-essential-negative"
+          >
+            <RotateCcw size={18} />
+            Reset all settings to defaults
+          </button>
+        </Section>
+
+        <p className="px-4 py-6 text-[11px] text-spotify-essential-subdued">
+          Fix_Spotify for Android · v1.0.0
+        </p>
+
+        <div className="h-6" />
+      </div>
+    </div>
+  );
+}
