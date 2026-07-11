@@ -8,7 +8,7 @@ Set-Location $projectRoot
 
 # Step 1: Run PyInstaller
 Write-Host "Running PyInstaller..."
-C:\Users\Ashir\AppData\Local\hermes\hermes-agent\venv\Scripts\pyinstaller.exe backend.spec --clean --noconfirm
+pyinstaller backend.spec --clean --noconfirm
 
 if ($LASTEXITCODE -ne 0) {
     Write-Host "PyInstaller failed with exit code $LASTEXITCODE" -ForegroundColor Red

@@ -4,9 +4,9 @@ uvicorn[standard]==0.27.0
 pydantic==2.6.1
 python-multipart==0.0.6
 
-# Core components (already in parent)
-# - requests
-# - rapidfuzz
+# Core components
+requests>=2.31.0
+rapidfuzz>=3.6.0
 
 # Audio processing
 mutagen==1.47.0

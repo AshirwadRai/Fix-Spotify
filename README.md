@@ -1,93 +1,168 @@
-# Fix Spotify
+# Fix_Spotify
 
+A multi-source music search, streaming, and download desktop app for Windows. Built with [Tauri v2](https://v2.tauri.app/) (Rust + React) and a Python [FastAPI](https://fastapi.tiangolo.com/) backend.
 
+## Features
 
-## Getting started
+- **Multi-source search** — JioSaavn, SoundCloud, and YouTube results merged and deduplicated
+- **Streaming** — play any track instantly with real-time bitrate/codec info
+- **Downloads** — queue-based downloads with automatic metadata enrichment (iTunes + MusicBrainz)
+- **Lyrics** — synced (line-by-line) and plain lyrics via lrclib
+- **Radio** — auto-generated stations from any song
+- **Library** — playlists, liked songs, albums, and artist views
+- **Now Playing** — full-screen panel with artwork, queue, shuffle/repeat
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+## Install (Users)
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+Download the latest installer from [**Releases**](https://github.com/XMrNooBX/Fix-Spotify/releases/latest) and run it. Everything is bundled — no extra setup needed.
 
-## Add your files
+> **Note:** On first launch, Windows may download the WebView2 runtime (~2 MB) if it's not already installed (it ships with Windows 11 and recent Windows 10 updates).
 
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+---
+
+## Build from Source (Developers)
+
+### Prerequisites
+
+| Tool | Version | Install |
+|------|---------|---------|
+| **Python** | 3.11+ | [python.org](https://www.python.org/downloads/) |
+| **Node.js** | 20+ | [nodejs.org](https://nodejs.org/) |
+| **Rust** | 1.88+ | [rustup.rs](https://rustup.rs/) |
+| **FFmpeg** (shared build) | 7.x | [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds/releases) |
+| **Deno** | 2.x | [deno.land](https://deno.land/) |
+
+### 1. Clone
+
+```bash
+git clone https://github.com/XMrNooBX/Fix-Spotify.git
+cd Fix-Spotify
+```
+
+### 2. Python backend
+
+```powershell
+# Create a virtual environment (recommended)
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+
+# Install dependencies + PyInstaller
+pip install -r api/requirements.txt
+pip install pyinstaller
+```
+
+### 3. Vendor binaries
+
+Download and place these in `vendor/bin/`:
 
 ```
-cd existing_repo
-git remote add origin https://gitlab.com/ashirwad-group/fix-spotify.git
-git branch -M main
-git push -uf origin main
+vendor/
+  bin/
+    ffmpeg.exe
+    ffprobe.exe
+    deno.exe
+    avcodec-63.dll      # from FFmpeg shared build
+    avdevice-63.dll
+    avfilter-12.dll
+    avformat-63.dll
+    avutil-61.dll
+    swresample-7.dll
+    swscale-10.dll
 ```
 
-## Integrate with your tools
+**Quick download (PowerShell):**
 
-* [Set up project integrations](https://gitlab.com/ashirwad-group/fix-spotify/-/settings/integrations)
+```powershell
+# FFmpeg (shared build)
+Invoke-WebRequest "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl-shared.zip" -OutFile ffmpeg.zip
+Expand-Archive ffmpeg.zip -DestinationPath ffmpeg-tmp
+Copy-Item ffmpeg-tmp/*/bin/* vendor/bin/ -Force
+Remove-Item ffmpeg.zip, ffmpeg-tmp -Recurse
 
-## Collaborate with your team
+# Deno
+Invoke-WebRequest "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip" -OutFile deno.zip
+Expand-Archive deno.zip -DestinationPath vendor/bin -Force
+Remove-Item deno.zip
+```
 
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+### 4. Build the Python sidecar
 
-## Test and Deploy
+```powershell
+.\build_backend.ps1
+```
 
-Use the built-in continuous integration in GitLab.
+This runs PyInstaller with `backend.spec` and copies the resulting `backend.exe` to the Tauri sidecar location.
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
+### 5. Frontend
 
-***
+```powershell
+cd frontend
+npm install
+```
 
-# Editing this README
+### 6. Run in development
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+```powershell
+npm run tauri dev
+```
 
-## Suggestions for a good README
+### 7. Build the installer
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+```powershell
+npm run tauri build
+```
 
-## Name
-Choose a self-explaining name for your project.
+The NSIS installer will be at:
+```
+frontend/src-tauri/target/release/bundle/nsis/Fix_Spotify_<version>_x64-setup.exe
+```
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+---
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+## Architecture
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+```
+Fix-Spotify/
+├── api/                    # FastAPI backend (Python)
+│   └── main.py             # REST API server (search, stream, download, lyrics)
+├── components/             # Python backend modules
+│   ├── unified_search.py   # Multi-source search engine
+│   ├── source_merger.py    # Track deduplication & merging
+│   ├── download_manager.py # Queue-based download system
+│   ├── jiosaavn_downloader.py
+│   ├── soundcloud_downloader.py
+│   ├── youtube_downloader.py
+│   ├── metadata_enricher.py  # iTunes/MusicBrainz metadata
+│   └── ...
+├── frontend/               # Tauri + React (Vite)
+│   ├── src/                # React components & UI
+│   ├── src-tauri/          # Rust shell (sidecar management, IPC)
+│   └── package.json
+├── vendor/                 # Runtime binaries (gitignored)
+│   └── bin/                # ffmpeg, ffprobe, deno
+├── backend.spec            # PyInstaller build spec
+├── build_backend.ps1       # Sidecar build script
+└── .github/workflows/      # CI/CD
+    └── build-release.yml   # Auto-build installer on version tags
+```
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+**How it works:** Tauri launches the React frontend in a webview and spawns the Python backend as a sidecar process. The frontend talks to the backend over HTTP (`127.0.0.1:8765`). FFmpeg/ffprobe and Deno are bundled as Tauri resources.
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+---
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+## CI/CD
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+Pushing a version tag triggers an automated build on GitHub Actions:
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+```powershell
+git tag v1.0.1
+git push origin main --tags
+```
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+The workflow builds the Python sidecar, downloads vendor binaries, builds the Tauri installer, and publishes it as a GitHub Release.
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+---
 
 ## License
-For open source projects, say how it is licensed.
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+MIT © [XMrNooBX](https://github.com/XMrNooBX)
