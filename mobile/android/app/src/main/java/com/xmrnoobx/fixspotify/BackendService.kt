@@ -45,7 +45,10 @@ class BackendService : Service() {
         const val BASE_URL = "http://127.0.0.1:$PORT"
 
         /**
-         * Per-launch secret guarding /api/*.
+         * Per-launch secret guarding the API routes.
+         *
+         * (Do not write that path with a glob in a KDoc: Kotlin NESTS block
+         * comments, so a slash-star opens a comment that never closes.)
          *
          * The Flask server listens on loopback, which on Android is NOT private:
          * every other app on the device can reach 127.0.0.1:8765 too. Without a

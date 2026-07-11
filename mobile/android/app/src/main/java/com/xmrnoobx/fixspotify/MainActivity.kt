@@ -197,10 +197,10 @@ class MainActivity : AppCompatActivity() {
                 packageManager.getPackageInfo(packageName, 0).versionName ?: ""
 
             /**
-             * The secret that authorises /api/* calls. Handing it over the bridge
-             * — rather than embedding it in the page — is the entire point: any
-             * app on the device can fetch our HTML from 127.0.0.1, but only the
-             * WebView we created has this bridge.
+             * The secret that authorises calls to the API routes. Handing it over
+             * the bridge — rather than embedding it in the page — is the entire
+             * point: any app on the device can fetch our HTML from 127.0.0.1, but
+             * only the WebView we created has this bridge.
              */
             @JavascriptInterface
             fun getApiToken(): String = BackendService.API_TOKEN
