@@ -352,8 +352,39 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
           </div>
         </div>
 
+        {/* Pane switcher — Song / Lyrics / Queue. Sits ABOVE the transport row so
+            the play controls stay in the same spot regardless of which pane is
+            open. */}
+        <div className="flex items-center justify-center gap-2 mt-3">
+          {TABS.map(({ id, label, Icon }) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setPane(id)}
+              aria-pressed={pane === id}
+              className={`tap flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[11px] font-medium transition-colors duration-fast ${
+                pane === id
+                  ? 'bg-white/15 text-white'
+                  : 'text-white/50 active:text-white'
+              }`}
+            >
+              <Icon size={15} />
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* Where the sound is actually going. Only shown when it ISN'T the
+            phone's own speaker, so it stays quiet until it's useful. */}
+        {audioOutput && (
+          <div className="flex items-center justify-center gap-1.5 mt-2 text-[11px] text-spotify-essential-bright-accent">
+            <Bluetooth size={13} className="shrink-0" />
+            <span className="truncate max-w-[70%]">{audioOutput}</span>
+          </div>
+        )}
+
         {/* Transport */}
-        <div className="flex items-center justify-between mt-2">
+        <div className="flex items-center justify-between mt-3">
           <button
             type="button"
             aria-label="Shuffle"
@@ -393,37 +424,10 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
             {repeat === 'one' ? <Repeat1 size={20} /> : <Repeat size={20} />}
           </button>
         </div>
-      </div>
 
-      {/* Pane switcher. pb-safe clears the Android gesture bar — without it these
-          sit right on the screen edge and get swallowed by the system's
-          back-gesture area. */}
-      <div className="shrink-0 pb-safe pt-3">
-        {/* Where the sound is actually going. Only shown when it ISN'T the
-            phone's own speaker, so it stays quiet until it's useful. */}
-        {audioOutput && (
-          <div className="flex items-center justify-center gap-1.5 px-6 pb-1.5 text-[11px] text-spotify-essential-bright-accent">
-            <Bluetooth size={13} className="shrink-0" />
-            <span className="truncate">{audioOutput}</span>
-          </div>
-        )}
-
-        <div className="flex items-center justify-around px-6 pb-2">
-          {TABS.map(({ id, label, Icon }) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setPane(id)}
-              aria-pressed={pane === id}
-              className={`tap flex flex-col items-center gap-1 px-4 py-1 text-[10px] ${
-                pane === id ? 'text-spotify-essential-bright-accent' : 'text-white/50'
-              }`}
-            >
-              <Icon size={19} />
-              {label}
-            </button>
-          ))}
-        </div>
+        {/* pb-safe clears the Android gesture bar so the transport row isn't
+            swallowed by the system back-gesture area. */}
+        <div className="pb-safe" />
       </div>
     </div>
   );

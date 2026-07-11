@@ -131,6 +131,36 @@ export function requestStorageAccess() {
 }
 
 /**
+ * Open the native folder picker. Resolves to the chosen filesystem path, or ''
+ * if the user cancelled / it isn't available (desktop, older APK). The result
+ * arrives asynchronously via window.__androidFolderPicked, which we adapt into a
+ * one-shot promise here.
+ */
+export function pickDownloadFolder() {
+  return new Promise((resolve) => {
+    if (!isAndroid() || typeof window.AndroidPlayer.pickDownloadFolder !== 'function') {
+      resolve('');
+      return;
+    }
+    let settled = false;
+    const done = (path) => {
+      if (settled) return;
+      settled = true;
+      window.__androidFolderPicked = undefined;
+      resolve(path || '');
+    };
+    window.__androidFolderPicked = done;
+    // Guard against a picker the user dismisses without the callback firing.
+    setTimeout(() => done(''), 120000);
+    try {
+      window.AndroidPlayer.pickDownloadFolder();
+    } catch {
+      done('');
+    }
+  });
+}
+
+/**
  * In-app updates.
  *
  * Ask Android to look for a newer GitHub release. The check is async on the

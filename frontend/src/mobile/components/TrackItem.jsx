@@ -6,14 +6,15 @@ import { usePlayer } from '../../store/PlayerContext';
 import { toast } from '../../utils/toast';
 import { SourceBadge } from './SourceBadge';
 
-const SWIPE_TRIGGER = 72;   // px of left-swipe that commits "add to queue"
+const SWIPE_TRIGGER = 72;   // px of right-swipe that commits "add to queue"
 
 /**
  * One row in any track list.
  *
  * Sized for a thumb, not a mouse: the row is a 56px tap target and the overflow
- * button is padded to ~44px. Swiping the row left past a threshold adds the
- * track to the queue (Spotify-style), revealing a green hint behind it.
+ * button is padded to ~44px. Swiping the row RIGHT past a threshold adds the
+ * track to the queue (like Spotify), revealing a green hint behind it on the
+ * left.
  */
 function TrackItemBase({
   track, index, currentTrack, isPlaying, onPlay, onMenu,
@@ -57,12 +58,12 @@ function TrackItemBase({
     }
     if (swiping.current) {
       moved.current = true;
-      setDx(Math.max(-96, Math.min(0, ddx)));   // left only, clamped
+      setDx(Math.min(96, Math.max(0, ddx)));   // right only, clamped
     }
   };
 
   const onTouchEnd = () => {
-    if (swiping.current && dx <= -SWIPE_TRIGGER) {
+    if (swiping.current && dx >= SWIPE_TRIGGER) {
       commitSwipe();
     }
     start.current = null;
@@ -77,9 +78,9 @@ function TrackItemBase({
 
   return (
     <div className="relative overflow-hidden">
-      {/* Reveal hint behind the row while swiping left. */}
-      {dx < -8 && (
-        <div className="absolute inset-y-0 right-0 w-24 flex items-center justify-center gap-1 bg-spotify-essential-bright-accent text-black text-xs font-semibold">
+      {/* Reveal hint behind the row while swiping right. */}
+      {dx > 8 && (
+        <div className="absolute inset-y-0 left-0 w-24 flex items-center justify-center gap-1 bg-spotify-essential-bright-accent text-black text-xs font-semibold">
           <ListPlus size={16} /> Queue
         </div>
       )}

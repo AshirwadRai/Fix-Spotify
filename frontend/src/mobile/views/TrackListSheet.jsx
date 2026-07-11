@@ -1,10 +1,11 @@
-import { useState } from 'react';
-import { ChevronLeft, Play, Shuffle, Heart, Music2, Trash2, Pencil, WifiOff, Camera } from 'lucide-react';
+import { useState, useRef, useCallback } from 'react';
+import { ChevronLeft, Play, Pause, Shuffle, Heart, Music2, Trash2, Pencil, WifiOff, Camera } from 'lucide-react';
 import { usePlayer } from '../../store/PlayerContext';
 import { TrackItem } from '../components/TrackItem';
 import { PlaylistCover } from '../../components/PlaylistCover';
 import { usePlayFrom } from '../usePlayFrom';
 import { deletePlaylist, renamePlaylist, setPlaylistImage } from '../usePlaylists';
+import { sameTrack } from '../../utils/tracks';
 import { toast } from '../../utils/toast';
 
 /**
@@ -46,11 +47,25 @@ function fileToCoverDataUrl(file) {
 }
 
 export function TrackListSheet({ view, onClose, onMenu }) {
-  const { currentTrack, isPlaying, playCollection } = usePlayer();
+  const { currentTrack, isPlaying, playCollection, shuffle, togglePlay } = usePlayer();
   const playFrom = usePlayFrom();
   const [renaming, setRenaming] = useState(false);
   const [name, setName] = useState(view?.title || '');
   const [cover, setCover] = useState(view?.image || null);
+
+  // Scroll-linked hero collapse — same treatment as the artist/album sheet.
+  const HERO_FADE_PX = 180;
+  const [fade, setFade] = useState(0);
+  const ticking = useRef(false);
+  const onScroll = useCallback((e) => {
+    const top = e.currentTarget.scrollTop;
+    if (ticking.current) return;
+    ticking.current = true;
+    requestAnimationFrame(() => {
+      setFade(Math.min(1, Math.max(0, top / HERO_FADE_PX)));
+      ticking.current = false;
+    });
+  }, []);
 
   const onPickCover = async (e) => {
     const file = e.target.files?.[0];
@@ -69,6 +84,9 @@ export function TrackListSheet({ view, onClose, onMenu }) {
   if (!view) return null;
 
   const tracks = view.tracks || [];
+  // "Is THIS collection the one currently playing?" — drives the button colours,
+  // so the green shuffle/play state actually reflects what you're hearing.
+  const playingThis = !!currentTrack && tracks.some((t) => sameTrack(t, currentTrack));
   const isPlaylist = view.kind === 'playlist';
   const isLiked = view.kind === 'liked';
   const isOffline = view.kind === 'offline';
@@ -80,23 +98,39 @@ export function TrackListSheet({ view, onClose, onMenu }) {
       : 'from-[#2b2b2b] to-[#121212]';
 
   const HeroIcon = isLiked ? Heart : isOffline ? WifiOff : Music2;
+  const editing = isPlaylist && renaming;
 
   return (
     <div className="absolute inset-0 z-20 bg-spotify-base flex flex-col">
-      {/* Hero */}
-      <div className="shrink-0 pt-safe bg-gradient-to-b from-white/5 to-transparent">
-        <div className="flex items-center justify-between h-14 px-2">
-          <button type="button" onClick={onClose} aria-label="Back" className="tap p-2">
+      {/* Sticky header — transparent over the hero, turning solid as it scrolls
+          away, with a compact title taking over from the hero's. */}
+      <div
+        className="shrink-0 pt-safe relative z-10"
+        style={{
+          background: fade > 0.02 ? `rgba(18,18,18,${0.35 + fade * 0.6})` : 'transparent',
+          backdropFilter: fade > 0.02 ? 'blur(12px)' : 'none',
+        }}
+      >
+        <div className="flex items-center justify-between h-14 px-2 gap-1">
+          <button type="button" onClick={onClose} aria-label="Back" className="tap p-2 shrink-0">
             <ChevronLeft size={26} />
           </button>
 
-          {isPlaylist && (
-            <div className="flex items-center gap-1">
+          <h2
+            className="min-w-0 flex-1 truncate text-center text-[16px] font-bold"
+            style={{ opacity: Math.max(0, (fade - 0.55) / 0.45) }}
+            aria-hidden={fade < 0.55}
+          >
+            {view.title}
+          </h2>
+
+          {isPlaylist ? (
+            <div className="flex items-center gap-1 shrink-0">
               <button
                 type="button"
-                aria-label="Rename playlist"
-                onClick={() => { setName(view.title); setRenaming(true); }}
-                className="tap p-2 text-spotify-text-subdued"
+                aria-label={editing ? 'Done editing' : 'Edit playlist'}
+                onClick={() => { setName(view.title); setRenaming((v) => !v); }}
+                className={`tap p-2 ${editing ? 'text-spotify-essential-bright-accent' : 'text-spotify-text-subdued'}`}
               >
                 <Pencil size={19} />
               </button>
@@ -113,97 +147,114 @@ export function TrackListSheet({ view, onClose, onMenu }) {
                 <Trash2 size={19} />
               </button>
             </div>
-          )}
-        </div>
-
-        <div className="px-4 pb-4 flex flex-col items-center">
-          {isPlaylist ? (
-            // Tap the cover to replace it. Liked/offline keep their fixed
-            // gradient identity — those aren't the user's to rebrand.
-            <label className="tap relative w-40 h-40 shrink-0 cursor-pointer rounded-md shadow-2xl overflow-hidden">
-              <PlaylistCover tracks={tracks} image={cover} size={160} />
-              <input
-                type="file"
-                accept="image/*"
-                className="sr-only"
-                onChange={onPickCover}
-              />
-              <span className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-1.5 bg-black/60 py-1.5 text-[11px] font-medium text-white">
-                <Camera size={13} />
-                {cover ? 'Change cover' : 'Add cover'}
-              </span>
-            </label>
           ) : (
-            <div
-              className={`w-40 h-40 rounded-md shadow-2xl bg-gradient-to-br ${gradient} flex items-center justify-center`}
-            >
-              <HeroIcon size={54} className="text-white" fill={isLiked ? 'white' : 'none'} />
-            </div>
+            <div className="w-10 shrink-0" />
           )}
-
-          {isPlaylist && cover && (
-            <button
-              type="button"
-              onClick={() => { setPlaylistImage(view.id, null); setCover(null); toast('Cover reset'); }}
-              className="tap mt-2 text-[12px] text-spotify-text-subdued underline"
-            >
-              Reset to song artwork
-            </button>
-          )}
-
-          {renaming ? (
-            <form
-              className="w-full mt-4"
-              onSubmit={(e) => {
-                e.preventDefault();
-                renamePlaylist(view.id, name);
-                setRenaming(false);
-                onClose();   // the parent re-reads playlists on close
-              }}
-            >
-              <input
-                autoFocus
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                enterKeyHint="done"
-                className="w-full h-11 px-3 rounded bg-white/10 text-center text-lg font-bold outline-none"
-              />
-            </form>
-          ) : (
-            <h1 className="text-2xl font-bold text-center mt-4 line-clamp-2">{view.title}</h1>
-          )}
-
-          <p className="text-[13px] text-spotify-text-subdued mt-1">
-            {tracks.length} {tracks.length === 1 ? 'song' : 'songs'}
-            {isOffline ? ' · available offline' : ''}
-          </p>
         </div>
       </div>
 
-      {/* Actions */}
-      <div className="shrink-0 flex items-center justify-end gap-4 px-4 pb-3">
-        <button
-          type="button"
-          aria-label="Shuffle play"
-          onClick={() => playCollection(tracks, true)}
-          disabled={tracks.length === 0}
-          className="tap p-1 disabled:opacity-40"
-        >
-          <Shuffle size={22} className="text-white/70" />
-        </button>
-        <button
-          type="button"
-          aria-label="Play"
-          onClick={() => playCollection(tracks, false)}
-          disabled={tracks.length === 0}
-          className="tap w-14 h-14 rounded-full bg-spotify-essential-bright-accent flex items-center justify-center disabled:opacity-40"
-        >
-          <Play size={26} className="text-black ml-1" fill="black" />
-        </button>
-      </div>
+      {/* Everything below scrolls together; the hero collapses as it does. */}
+      <div className="scroll-y flex-1 -mt-14" onScroll={onScroll}>
+        <div className="pt-14 bg-gradient-to-b from-white/5 to-transparent">
+          <div
+            className="px-4 pb-4 pt-4 flex flex-col items-center will-change-transform"
+            style={{
+              opacity: 1 - fade,
+              transform: `translateY(${fade * -28}px) scale(${1 - fade * 0.08})`,
+            }}
+          >
+            {isPlaylist ? (
+              editing ? (
+                // The cover is only editable in edit mode: tap to replace, and a
+                // reset link appears when a custom one is set.
+                <>
+                  <label className="tap relative w-40 h-40 shrink-0 cursor-pointer rounded-md shadow-2xl overflow-hidden">
+                    <PlaylistCover tracks={tracks} image={cover} size={160} />
+                    <input type="file" accept="image/*" className="sr-only" onChange={onPickCover} />
+                    <span className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-1.5 bg-black/60 py-1.5 text-[11px] font-medium text-white">
+                      <Camera size={13} />
+                      {cover ? 'Change cover' : 'Add cover'}
+                    </span>
+                  </label>
+                  {cover && (
+                    <button
+                      type="button"
+                      onClick={() => { setPlaylistImage(view.id, null); setCover(null); toast('Cover reset'); }}
+                      className="tap mt-2 text-[12px] text-spotify-text-subdued underline"
+                    >
+                      Reset to song artwork
+                    </button>
+                  )}
+                </>
+              ) : (
+                <div className="w-40 h-40 shrink-0 rounded-md shadow-2xl overflow-hidden">
+                  <PlaylistCover tracks={tracks} image={cover} size={160} />
+                </div>
+              )
+            ) : (
+              <div className={`w-40 h-40 rounded-md shadow-2xl bg-gradient-to-br ${gradient} flex items-center justify-center`}>
+                <HeroIcon size={54} className="text-white" fill={isLiked ? 'white' : 'none'} />
+              </div>
+            )}
 
-      {/* Tracks */}
-      <div className="scroll-y flex-1">
+            {editing ? (
+              <form
+                className="w-full mt-4"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  renamePlaylist(view.id, name);
+                  setRenaming(false);
+                  onClose();   // the parent re-reads playlists on close
+                }}
+              >
+                <input
+                  autoFocus
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  enterKeyHint="done"
+                  className="w-full h-11 px-3 rounded bg-white/10 text-center text-lg font-bold outline-none"
+                />
+              </form>
+            ) : (
+              <h1 className="text-2xl font-bold text-center mt-4 line-clamp-2">{view.title}</h1>
+            )}
+
+            <p className="text-[13px] text-spotify-text-subdued mt-1">
+              {tracks.length} {tracks.length === 1 ? 'song' : 'songs'}
+              {isOffline ? ' · available offline' : ''}
+            </p>
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center justify-end gap-4 px-4 pb-3 bg-spotify-base">
+          <button
+            type="button"
+            aria-label="Shuffle play"
+            onClick={() => playCollection(tracks, true)}
+            disabled={tracks.length === 0}
+            className={`tap p-1 transition-colors duration-fast disabled:opacity-40 ${
+              playingThis && shuffle ? 'text-spotify-essential-bright-accent' : 'text-white/70'
+            }`}
+          >
+            <Shuffle size={22} />
+          </button>
+          <button
+            type="button"
+            aria-label={playingThis && isPlaying ? 'Pause' : 'Play'}
+            onClick={() => (playingThis ? togglePlay() : playCollection(tracks, false))}
+            disabled={tracks.length === 0}
+            className="tap w-14 h-14 rounded-full bg-spotify-essential-bright-accent flex items-center justify-center disabled:opacity-40 transition-transform duration-fast active:scale-95"
+          >
+            {playingThis && isPlaying ? (
+              <Pause size={26} className="text-black" fill="black" />
+            ) : (
+              <Play size={26} className="text-black ml-1" fill="black" />
+            )}
+          </button>
+        </div>
+
+        {/* Tracks */}
         {tracks.map((t, i) => (
           <TrackItem
             key={`${t.title}-${t.artist}-${i}`}

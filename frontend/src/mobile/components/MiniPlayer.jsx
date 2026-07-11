@@ -1,7 +1,42 @@
-import { useState, useRef, useCallback } from 'react';
-import { Play, Pause, SkipForward } from 'lucide-react';
+import { useState, useRef, useCallback, useEffect, useLayoutEffect } from 'react';
+import { Play, Pause, SkipForward, Heart } from 'lucide-react';
 import { usePlayer } from '../../store/PlayerContext';
 import { getBestArtworkUrl, cleanText } from '../../utils/tracks';
+import { isLiked, toggleLiked } from '../../utils/likes';
+
+/**
+ * Horizontally scrolls its text only when it's too long to fit, Spotify-style:
+ * hold, drift the overflow into view, hold, snap back, repeat. A title that
+ * fits just sits still — no motion for its own sake. Honours reduced-motion.
+ */
+function Marquee({ text, className = '' }) {
+  const wrapRef = useRef(null);
+  const textRef = useRef(null);
+  const [shift, setShift] = useState(0);   // px the text overflows by (0 = fits)
+
+  useLayoutEffect(() => {
+    const wrap = wrapRef.current;
+    const inner = textRef.current;
+    if (!wrap || !inner) return;
+    const over = inner.scrollWidth - wrap.clientWidth;
+    setShift(over > 4 ? over : 0);
+  }, [text]);
+
+  const animate = shift > 0
+    && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+  return (
+    <div ref={wrapRef} className={`overflow-hidden ${className}`}>
+      <div
+        ref={textRef}
+        className={`whitespace-nowrap ${animate ? 'marquee-run' : 'truncate'}`}
+        style={animate ? { '--marquee-shift': `-${shift}px` } : undefined}
+      >
+        {text}
+      </div>
+    </div>
+  );
+}
 
 /**
  * The persistent bar above the tab bar. Tapping it opens the full-screen
@@ -10,6 +45,9 @@ import { getBestArtworkUrl, cleanText } from '../../utils/tracks';
  */
 export function MiniPlayer({ onExpand }) {
   const { currentTrack, isPlaying, togglePlay, playNext, progress, duration, seek } = usePlayer();
+  const [liked, setLiked] = useState(false);
+  // Re-read when the track changes (isLiked reads localStorage, not reactive).
+  useEffect(() => { setLiked(currentTrack ? isLiked(currentTrack) : false); }, [currentTrack]);
 
   // While dragging we show the FINGER's position, not the audio's — the audio
   // keeps playing the old position until release, and a bar that snapped back
@@ -67,15 +105,25 @@ export function MiniPlayer({ onExpand }) {
             ) : null}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-[13px] text-white truncate leading-tight">
-              {cleanText(currentTrack.title)}
-            </p>
+            <Marquee text={cleanText(currentTrack.title)} className="text-[13px] text-white leading-tight" />
             <p className="text-[12px] text-spotify-text-subdued truncate leading-tight">
               {cleanText(currentTrack.artist)}
             </p>
           </div>
         </button>
 
+        <button
+          type="button"
+          aria-label={liked ? 'Remove from Liked Songs' : 'Add to Liked Songs'}
+          onClick={(e) => { e.stopPropagation(); toggleLiked(currentTrack); setLiked((v) => !v); }}
+          className="tap p-2 transition-transform duration-fast active:scale-90"
+        >
+          <Heart
+            size={20}
+            className={liked ? 'text-spotify-essential-bright-accent' : 'text-white/80'}
+            fill={liked ? 'currentColor' : 'none'}
+          />
+        </button>
         <button
           type="button"
           aria-label={isPlaying ? 'Pause' : 'Play'}

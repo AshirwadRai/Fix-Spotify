@@ -1,5 +1,5 @@
-import { useState, useRef, useCallback } from 'react';
-import { Search, X, Clock } from 'lucide-react';
+import { useState, useRef, useCallback, useEffect } from 'react';
+import { Search, X, Clock, TrendingUp } from 'lucide-react';
 import { api } from '../../api';
 import { TrackItem, CardItem } from '../components/TrackItem';
 import { normalizeTracks, applyEnrichment } from '../../utils/tracks';
@@ -15,12 +15,34 @@ export function SearchTab({ onMenu, onOpenArtist, onOpenAlbum, onImportSpotify }
   const [albums, setAlbums] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
+  const [suggestions, setSuggestions] = useState([]);
+  const [focused, setFocused] = useState(false);
 
   const { currentTrack, isPlaying } = usePlayer();
   const playFrom = usePlayFrom();
   const recents = useRecentSearches();
   const inputRef = useRef(null);
   const reqIdRef = useRef(0);
+  const sugIdRef = useRef(0);
+
+  // Live autocomplete. Debounced 180ms so it fires on a pause in typing, not on
+  // every keystroke, and ticketed like the main search so a slow reply can't
+  // overwrite a fresher one. Cleared as soon as the box is empty or a real
+  // search runs, so stale suggestions never linger under results.
+  useEffect(() => {
+    const term = query.trim();
+    if (term.length < 2 || isSpotifyUrl(term)) { setSuggestions([]); return; }
+    const ticket = ++sugIdRef.current;
+    const timer = setTimeout(async () => {
+      try {
+        const res = await api.getSuggestions(term, 8);
+        if (ticket === sugIdRef.current) setSuggestions(res.suggestions || []);
+      } catch {
+        if (ticket === sugIdRef.current) setSuggestions([]);
+      }
+    }, 180);
+    return () => clearTimeout(timer);
+  }, [query]);
 
   const runSearch = useCallback(async (q) => {
     const term = q.trim();
@@ -39,6 +61,8 @@ export function SearchTab({ onMenu, onOpenArtist, onOpenAlbum, onImportSpotify }
 
     setLoading(true);
     setSearched(true);
+    setSuggestions([]);           // a committed search supersedes the hints
+    sugIdRef.current++;
     addRecentSearch(term);
     inputRef.current?.blur();     // drop the keyboard so results are visible
 
@@ -80,8 +104,14 @@ export function SearchTab({ onMenu, onOpenArtist, onOpenAlbum, onImportSpotify }
     setArtists([]);
     setAlbums([]);
     setSearched(false);
+    setSuggestions([]);
     reqIdRef.current++;   // invalidate anything in flight
+    sugIdRef.current++;
   };
+
+  // Show the dropdown only while the user is actively typing into a focused box
+  // and hasn't yet committed a search — never over a results list.
+  const showSuggestions = focused && suggestions.length > 0 && !loading;
 
   return (
     <div className="flex flex-col h-full">
@@ -101,6 +131,9 @@ export function SearchTab({ onMenu, onOpenArtist, onOpenAlbum, onImportSpotify }
               ref={inputRef}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              onFocus={() => setFocused(true)}
+              // Delay so a tap on a suggestion registers before the list unmounts.
+              onBlur={() => setTimeout(() => setFocused(false), 150)}
               type="search"
               enterKeyHint="search"
               placeholder="Songs, artists, or a Spotify link"
@@ -118,6 +151,25 @@ export function SearchTab({ onMenu, onOpenArtist, onOpenAlbum, onImportSpotify }
             )}
           </form>
         </div>
+
+        {/* Autocomplete. Tapping a suggestion runs it immediately. */}
+        {showSuggestions && (
+          <div className="px-2 pb-2">
+            {suggestions.map((s) => (
+              <button
+                key={s}
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => { setQuery(s); runSearch(s); }}
+                className="tap w-full flex items-center gap-3 px-3 py-2.5 rounded text-left transition-colors duration-fast active:bg-white/10"
+              >
+                <TrendingUp size={16} className="text-spotify-text-subdued shrink-0" />
+                <span className="flex-1 text-[14px] truncate">{s}</span>
+                <Search size={14} className="text-spotify-text-subdued shrink-0" />
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="scroll-y flex-1">

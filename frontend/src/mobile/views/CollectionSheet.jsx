@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { ChevronLeft, Play, Heart, Download, Shuffle } from 'lucide-react';
+import { ChevronLeft, Play, Pause, Heart, Download, Shuffle } from 'lucide-react';
 import { api } from '../../api';
 import { usePlayer } from '../../store/PlayerContext';
 import { useDownloads } from '../../store/DownloadsContext';
 import { TrackItem, CardItem } from '../components/TrackItem';
-import { normalizeTracks, cleanText } from '../../utils/tracks';
+import { normalizeTracks, cleanText, sameTrack } from '../../utils/tracks';
 import { toggleSaved, isSaved } from '../../utils/collections';
 import { useDominantColor } from '../../utils/useDominantColor';
 import { usePlayFrom } from '../usePlayFrom';
@@ -21,7 +21,7 @@ export function CollectionSheet({ target, onClose, onMenu, onOpenArtist, onOpenA
   const [loading, setLoading] = useState(true);
   const [saved, setSaved] = useState(false);
 
-  const { currentTrack, isPlaying, playCollection } = usePlayer();
+  const { currentTrack, isPlaying, playCollection, shuffle, togglePlay } = usePlayer();
   const playFrom = usePlayFrom();
   const { downloadMany } = useDownloads();
 
@@ -86,6 +86,7 @@ export function CollectionSheet({ target, onClose, onMenu, onOpenArtist, onOpenA
   if (!target) return null;
 
   const tracks = normalizeTracks(data?.tracks || data?.top_songs || []);
+  const playingThis = !!currentTrack && tracks.some((t) => sameTrack(t, currentTrack));
   const isArtist = target.type === 'artist';
   const bg = rgb ? `rgb(${rgb})` : '#333';
 
@@ -199,19 +200,25 @@ export function CollectionSheet({ target, onClose, onMenu, onOpenArtist, onOpenA
           type="button"
           aria-label="Shuffle play"
           onClick={() => playCollection(tracks, true)}
-          className="tap p-1"
+          className={`tap p-1 transition-colors duration-fast ${
+            playingThis && shuffle ? 'text-spotify-essential-bright-accent' : 'text-white/70'
+          }`}
           disabled={tracks.length === 0}
         >
-          <Shuffle size={22} className="text-white/70" />
+          <Shuffle size={22} />
         </button>
         <button
           type="button"
-          aria-label="Play"
-          onClick={() => playCollection(tracks, false)}
+          aria-label={playingThis && isPlaying ? 'Pause' : 'Play'}
+          onClick={() => (playingThis ? togglePlay() : playCollection(tracks, false))}
           disabled={tracks.length === 0}
-          className="tap w-14 h-14 rounded-full bg-spotify-essential-bright-accent flex items-center justify-center disabled:opacity-40"
+          className="tap w-14 h-14 rounded-full bg-spotify-essential-bright-accent flex items-center justify-center disabled:opacity-40 transition-transform duration-fast active:scale-95"
         >
-          <Play size={26} className="text-black ml-1" fill="black" />
+          {playingThis && isPlaying ? (
+            <Pause size={26} className="text-black" fill="black" />
+          ) : (
+            <Play size={26} className="text-black ml-1" fill="black" />
+          )}
         </button>
       </div>
 

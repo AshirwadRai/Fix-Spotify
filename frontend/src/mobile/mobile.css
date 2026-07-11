@@ -49,6 +49,21 @@
   to   { transform: translateY(0); }
 }
 
+/* Mini-player title marquee. Holds at the start, drifts the overflow into view,
+   holds again, then snaps back — a calm loop, not a constant crawl. The scroll
+   distance is the element's own overflow, passed in as --marquee-shift. */
+@keyframes marquee-scroll {
+  0%, 12%   { transform: translateX(0); }
+  50%, 62%  { transform: translateX(var(--marquee-shift, 0)); }
+  100%      { transform: translateX(0); }
+}
+.marquee-run {
+  animation: marquee-scroll 9s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .marquee-run { animation: none; }
+}
+
 /* Named durations/curves as utilities, so JSX reads `duration-base ease-soft`
    instead of hardcoding milliseconds. */
 @utility duration-fast { transition-duration: var(--motion-fast); }
@@ -62,6 +77,13 @@
   body,
   #root {
     height: 100%;
+  }
+
+  html {
+    /* 93.75% of the 16px default = a 15px root. Every rem-based size (Tailwind's
+       text-sm/base/lg, gaps, padding) scales down with it for a tighter, more
+       "native" mobile feel, without touching each component. */
+    font-size: 93.75%;
   }
 
   body {

@@ -38,13 +38,17 @@ export function DownloadsProvider({ children }) {
 
   const ensurePolling = useCallback(() => {
     if (pollRef.current) return;
+    // 500ms, not 1500: a song is only a few MB and finishes in a couple of
+    // seconds on a phone, so a slow poll caught just the 0% and 100% frames and
+    // the bar appeared to jump. At 500ms the backend's real per-chunk progress
+    // (hundreds of updates) shows as a smooth fill.
     pollRef.current = setInterval(async () => {
       const list = await refresh();
       if (!list.some(t => ACTIVE.has(t.status))) {
         clearInterval(pollRef.current);
         pollRef.current = null;
       }
-    }, 1500);
+    }, 500);
   }, [refresh]);
 
   // Initial load: fetch dir + tasks, resume polling if something is active.

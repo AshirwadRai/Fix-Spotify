@@ -7,7 +7,7 @@ import { api } from '../../api';
 import { toast } from '../../utils/toast';
 import {
   isAndroid, getAppVersion, checkForUpdate, installUpdate, registerUpdateHandlers,
-  requestStorageAccess,
+  requestStorageAccess, pickDownloadFolder,
 } from '../androidBridge';
 
 const QUALITIES = [
@@ -223,8 +223,6 @@ export function SettingsTab({ onClose }) {
  */
 function StorageSection() {
   const [info, setInfo] = useState(null);
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState('');
 
   const load = useCallback(() => {
     api.getDownloadsInfo()
@@ -247,11 +245,16 @@ function StorageSection() {
       const res = await api.setDownloadsDir(path);
       if (res?.ok === false) { toast(res.error || 'Could not use that folder'); return; }
       setInfo(res);
-      setEditing(false);
       toast(path ? 'Download folder updated' : 'Reset to the default folder');
     } catch {
       toast('Could not change the folder');
     }
+  };
+
+  // Opens the native folder picker; the chosen path comes back from Android.
+  const choose = async () => {
+    const path = await pickDownloadFolder();
+    if (path) save(path);
   };
 
   // Warn only when songs ACTUALLY landed in private storage — not merely when a
@@ -288,43 +291,24 @@ function StorageSection() {
             </div>
           )}
 
-          {editing ? (
-            <form
-              className="mt-2 flex gap-2"
-              onSubmit={(e) => { e.preventDefault(); save(draft.trim()); }}
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={choose}
+              className="tap rounded-full bg-white/10 px-3 py-1.5 text-[12px] transition-colors duration-fast active:bg-white/20"
             >
-              <input
-                autoFocus
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                placeholder="/storage/emulated/0/Music"
-                enterKeyHint="done"
-                className="h-9 min-w-0 flex-1 rounded bg-white/10 px-2 text-[12px] outline-none"
-              />
-              <button type="submit" className="tap rounded-full bg-white px-3 text-[12px] font-semibold text-black">
-                Save
-              </button>
-            </form>
-          ) : (
-            <div className="mt-2 flex flex-wrap gap-2">
+              Choose folder
+            </button>
+            {info?.custom && (
               <button
                 type="button"
-                onClick={() => { setDraft(info?.custom || info?.path || ''); setEditing(true); }}
-                className="tap rounded-full bg-white/10 px-3 py-1.5 text-[12px]"
+                onClick={() => save('')}
+                className="tap rounded-full bg-white/10 px-3 py-1.5 text-[12px] text-spotify-text-subdued"
               >
-                Choose folder
+                Use default
               </button>
-              {info?.custom && (
-                <button
-                  type="button"
-                  onClick={() => save('')}
-                  className="tap rounded-full bg-white/10 px-3 py-1.5 text-[12px] text-spotify-text-subdued"
-                >
-                  Use default
-                </button>
-              )}
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
     </Section>

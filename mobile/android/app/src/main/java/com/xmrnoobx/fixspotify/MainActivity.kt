@@ -62,6 +62,22 @@ class MainActivity : AppCompatActivity() {
         filePathCallback = null
     }
 
+    // The system "pick a folder" screen (Storage Access Framework). It returns a
+    // content:// tree URI, which we translate back to a real filesystem path so
+    // yt-dlp and the tagger — which need a real path — can write there.
+    private val folderPicker = registerForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri: Uri? ->
+        val path = uri?.let { treeUriToPath(it) } ?: ""
+        // Result goes back to the Settings screen through the page callback.
+        runOnUiThread {
+            webView.evaluateJavascript(
+                "window.__androidFolderPicked && window.__androidFolderPicked(${jsString(path)})",
+                null
+            )
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -225,6 +241,22 @@ class MainActivity : AppCompatActivity() {
             }
 
             /**
+             * Open the system folder picker. The chosen path is delivered back to
+             * the page via window.__androidFolderPicked(path); an empty string
+             * means the user cancelled or the folder can't map to a real path.
+             */
+            @JavascriptInterface
+            fun pickDownloadFolder() {
+                handler.post {
+                    try {
+                        folderPicker.launch(null)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "folder picker failed", e)
+                    }
+                }
+            }
+
+            /**
              * Check GitHub for a newer release. Returns a JSON string:
              *   {"available":true,"version":"1.2.0","notes":"…"}  or  {"available":false}
              * Network I/O, so it runs on a worker thread and the result is pushed
@@ -369,6 +401,37 @@ class MainActivity : AppCompatActivity() {
     } catch (e: Exception) {
         false
     }
+
+    /**
+     * Translate a Storage-Access-Framework tree URI into a real filesystem path.
+     *
+     * The picker returns e.g. content://…/tree/primary:Music/Sub, whose document
+     * id is "primary:Music/Sub". "primary" is the device's shared storage
+     * (/storage/emulated/0); other volumes are /storage/<id>. yt-dlp and the
+     * tagger need a real path, which is why we translate rather than keep the
+     * URI. Returns "" for anything we can't confidently map (rare OEM cases),
+     * so the caller can fall back instead of writing to a bad path.
+     */
+    private fun treeUriToPath(uri: Uri): String = try {
+        val docId = android.provider.DocumentsContract.getTreeDocumentId(uri)
+        val parts = docId.split(":", limit = 2)
+        val volume = parts.getOrNull(0) ?: ""
+        val relative = parts.getOrNull(1) ?: ""
+        val root = if (volume.equals("primary", ignoreCase = true)) {
+            Environment.getExternalStorageDirectory().absolutePath
+        } else if (volume.isNotBlank()) {
+            "/storage/$volume"
+        } else {
+            ""
+        }
+        if (root.isBlank()) "" else if (relative.isBlank()) root else "$root/$relative"
+    } catch (e: Exception) {
+        ""
+    }
+
+    /** Escape a string for safe injection into an evaluateJavascript() call. */
+    private fun jsString(s: String): String =
+        "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n") + "\""
 
     private fun openAllFilesAccessSettings() {
         try {

@@ -140,7 +140,10 @@ function Section({ title, children }) {
 /** An in-flight or failed download. Completed ones are shown as playable tracks. */
 function TaskRow({ task, onCancel, onRetry }) {
   const info = task.track_info || {};
-  const pct = Math.round((task.progress || 0) * 100);
+  // task.progress is ALREADY a 0-100 percentage (download_manager caps it at 99
+  // until completion). Multiplying by 100 pinned the bar at 100% the instant
+  // real progress passed 1% — which read as an instant 0 -> 100 jump.
+  const pct = Math.min(100, Math.max(0, Math.round(task.progress || 0)));
   const downloading = ['downloading', 'queued', 'pending'].includes(task.status);
   const isFailed = ['failed', 'error'].includes(task.status);
 
