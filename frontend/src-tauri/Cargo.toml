@@ -1,6 +1,6 @@
 [package]
 name = "fix-spotify"
-version = "1.0.0"
+version = "1.0.1"
 description = "Music Downloader - Multi-source music search and download"
 authors = ["XMrNooBX"]
 edition = "2024"
