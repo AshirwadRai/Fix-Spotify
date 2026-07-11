@@ -1050,6 +1050,165 @@ def enrich_batch():
         return jsonify({"results": [None] * len(tracks), "error": str(e)})
 
 
+# ─── Spotify playlist import ──────────────────────────────────────────────────
+# Spotify itself is NOT a playable source — we never stream from it. We only read
+# a public playlist's TRACK LIST (title + artist), then find each song on
+# JioSaavn/SoundCloud so it becomes playable here.
+#
+# No Spotify API key is needed: the public embed endpoint returns the tracklist
+# as JSON. If Spotify changes that shape this degrades to "playlist not found"
+# rather than breaking anything else.
+_SPOTIFY_URL_RE = re.compile(
+    r"open\.spotify\.com/(?:intl-[a-z]{2}/)?(playlist|album)/([A-Za-z0-9]+)"
+)
+
+
+def parse_spotify_url(url: str):
+    """-> (kind, id) for a Spotify playlist/album URL or URI, else (None, None)."""
+    if not url:
+        return None, None
+    m = _SPOTIFY_URL_RE.search(url)
+    if m:
+        return m.group(1), m.group(2)
+    # spotify:playlist:37i9dQ...
+    m = re.match(r"spotify:(playlist|album):([A-Za-z0-9]+)", url.strip())
+    if m:
+        return m.group(1), m.group(2)
+    return None, None
+
+
+def _spotify_tracklist(kind: str, sid: str):
+    """Read {name, tracks:[{title, artist}]} from Spotify's public embed page."""
+    r = http_requests.get(
+        f"https://open.spotify.com/embed/{kind}/{sid}",
+        headers={
+            "User-Agent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36",
+            "Accept-Language": "en",
+        },
+        timeout=15,
+    )
+    if r.status_code != 200:
+        return None
+
+    # The embed page ships its state in a __NEXT_DATA__ script tag.
+    m = re.search(
+        r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', r.text, re.DOTALL
+    )
+    if not m:
+        return None
+    try:
+        data = json.loads(m.group(1))
+    except Exception:
+        return None
+
+    entity = (
+        data.get("props", {}).get("pageProps", {}).get("state", {})
+        .get("data", {}).get("entity", {})
+    )
+    if not entity:
+        return None
+
+    name = entity.get("name") or entity.get("title") or "Spotify playlist"
+    items = entity.get("trackList") or []
+
+    def _norm_ws(s: str) -> str:
+        # Spotify separates multiple artists with a NON-BREAKING space
+        # ("Shakira,\xa0Burna Boy"). Left in, it poisons the search query.
+        return " ".join((s or "").replace("\xa0", " ").split())
+
+    tracks = []
+    for it in items:
+        title = _norm_ws(it.get("title"))
+        artist = _norm_ws(it.get("subtitle"))
+        if title:
+            tracks.append({"title": title, "artist": artist})
+
+    cover = ""
+    try:
+        cover = entity.get("coverArt", {}).get("sources", [{}])[0].get("url", "")
+    except Exception:
+        pass
+    return {"name": _norm_ws(name), "tracks": tracks, "image": cover}
+
+
+def _match_track(item: Dict[str, str]) -> Optional[Dict[str, Any]]:
+    """Find a PLAYABLE version of one Spotify track on our own sources."""
+    if _search_service is None:
+        return None
+    query = f"{item['title']} {item['artist']}".strip()
+    try:
+        cfg = replace(
+            _search_service.config,
+            max_total_results=1,
+            max_results_per_source=3,
+            enabled_sources=PLAYABLE_SEARCH_SOURCES,
+            timeout_seconds=10.0,
+        )
+        for track in _search_service.search(query, cfg):
+            source = _playable_source_name(track)
+            if not source:
+                continue
+            return {
+                "title": _clean_text(track.title) or item["title"],
+                "artist": _clean_text(track.artist) or item["artist"],
+                "album": _clean_text(track.album),
+                "duration_ms": track.duration_ms,
+                "isrc": track.isrc,
+                "sources": {k.value: _source_to_dict(v) for k, v in track.sources.items()},
+                "primary_source": source,
+                "playable_source": source,
+                "artwork_url": track.get_best_artwork() if hasattr(track, "get_best_artwork") else None,
+                "artwork_urls": _clean_artwork_urls(getattr(track, "artwork_urls", {})),
+                "is_playable": True,
+            }
+    except Exception:
+        pass
+    return None
+
+
+@app.get("/api/spotify/import")
+def spotify_import():
+    """Resolve a public Spotify playlist/album URL into playable tracks.
+
+    Each Spotify track is matched to JioSaavn/SoundCloud by title+artist. Songs
+    with no match are reported in `missing` rather than silently dropped, so the
+    user knows what didn't come across.
+    """
+    url = _arg("url")
+    kind, sid = parse_spotify_url(url)
+    if not kind:
+        return jsonify({"error": "Not a Spotify playlist or album link"}), 400
+
+    try:
+        meta = _spotify_tracklist(kind, sid)
+    except Exception as e:
+        return jsonify({"error": f"Could not read that playlist: {e}"}), 502
+    if not meta:
+        return jsonify({"error": "Could not read that playlist — is it public?"}), 502
+
+    # Cap the work: matching runs a real search per track.
+    items = meta["tracks"][:100]
+
+    # Matching is network-bound, so fan out. Order is preserved by executor.map.
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        matched = list(ex.map(_match_track, items))
+
+    tracks = [t for t in matched if t]
+    missing = [
+        f"{i['title']} — {i['artist']}"
+        for i, t in zip(items, matched) if not t
+    ]
+
+    return jsonify({
+        "name": meta["name"],
+        "image": meta.get("image", ""),
+        "tracks": tracks,
+        "missing": missing,
+        "total": len(items),
+        "matched": len(tracks),
+    })
+
+
 @app.get("/api/sources/status")
 def sources_status():
     sources = {

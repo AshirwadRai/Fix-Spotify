@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   ChevronDown, Play, Pause, SkipBack, SkipForward, Shuffle, Repeat, Repeat1,
-  Heart, Download, ListMusic, Mic2, Disc3, Check, Plus,
+  Heart, Download, ListMusic, Mic2, Disc3, Check, Plus, GripVertical, Bluetooth,
 } from 'lucide-react';
 import { usePlayer } from '../../store/PlayerContext';
 import { useDownloads } from '../../store/DownloadsContext';
@@ -11,6 +11,8 @@ import { isLiked, toggleLiked } from '../../utils/likes';
 import { isDownloaded } from '../../utils/downloads';
 import { useDominantColor } from '../../utils/useDominantColor';
 import { usePlayFrom } from '../usePlayFrom';
+import { SourceBadge } from './SourceBadge';
+import { useAudioOutput } from '../androidBridge';
 
 function fmt(seconds) {
   if (!seconds || Number.isNaN(seconds)) return '0:00';
@@ -43,10 +45,19 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
   const {
     currentTrack, isPlaying, togglePlay, playNext, playPrevious,
     progress, duration, seek, shuffle, toggleShuffle, repeat, cycleRepeat,
-    queue,
+    queue, reorderQueue,
   } = usePlayer();
   const { startDownload } = useDownloads();
   const playFrom = usePlayFrom();
+
+  // Drag-to-reorder state for the queue pane. dragFrom = the row being dragged;
+  // dragOver = the row it's currently hovering, so we can show a drop indicator.
+  const [dragFrom, setDragFrom] = useState(null);
+  const [dragOver, setDragOver] = useState(null);
+  const queueRef = useRef(null);
+
+  // Bluetooth / wired output device name — polled only while this sheet is open.
+  const audioOutput = useAudioOutput(open);
 
   const [pane, setPane] = useState('art');
   const [lyrics, setLyrics] = useState({ plain: '', synced: [], source: null });
@@ -109,6 +120,25 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
   const onTouchStart = (e) => { touchStartY.current = e.touches[0].clientY; };
   const onTouchEnd = (e) => {
     if (e.changedTouches[0].clientY - touchStartY.current > 80) onClose();
+  };
+
+  // Queue drag-to-reorder: the grip sets dragFrom; as the finger moves we read
+  // the row under it (elementFromPoint) to set dragOver; release commits the move.
+  const onQueueTouchMove = (e) => {
+    if (dragFrom === null) return;
+    const t = e.touches[0];
+    const row = document.elementFromPoint(t.clientX, t.clientY)?.closest('[data-qidx]');
+    if (row) {
+      const idx = Number(row.getAttribute('data-qidx'));
+      if (!Number.isNaN(idx)) setDragOver(idx);
+    }
+  };
+  const onQueueTouchEnd = () => {
+    if (dragFrom !== null && dragOver !== null && dragFrom !== dragOver) {
+      reorderQueue(dragFrom, dragOver);
+    }
+    setDragFrom(null);
+    setDragOver(null);
   };
 
   return (
@@ -191,31 +221,53 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
         )}
 
         {pane === 'queue' && (
-          <div className="scroll-y flex-1 min-h-0 px-4 py-2">
-            <p className="text-xs uppercase tracking-wider text-white/60 mb-2 px-1">Next up</p>
+          <div
+            ref={queueRef}
+            className="scroll-y flex-1 min-h-0 px-4 py-2"
+            style={{ touchAction: dragFrom !== null ? 'none' : 'pan-y' }}
+            onTouchMove={onQueueTouchMove}
+            onTouchEnd={onQueueTouchEnd}
+          >
+            <p className="text-xs uppercase tracking-wider text-white/60 mb-2 px-1">
+              Next up · hold <GripVertical size={11} className="inline -mt-0.5" /> to reorder
+            </p>
             {queue.length === 0 && (
               <p className="text-white/50 text-sm px-1 py-4">
                 Nothing queued. Autoplay will keep the music going when this ends.
               </p>
             )}
             {queue.map((t, i) => (
-              <button
+              <div
                 key={`${t.title}-${i}`}
-                type="button"
-                // Play this queue item and re-queue everything after it.
-                onClick={() => playFrom(queue, i)}
-                className="tap w-full flex items-center gap-3 py-2 text-left"
+                data-qidx={i}
+                className={`flex items-center gap-2 rounded transition-colors ${
+                  dragFrom === i ? 'opacity-40' : ''
+                } ${dragOver === i && dragFrom !== null && dragFrom !== i ? 'bg-white/10' : ''}`}
               >
-                <div className="w-11 h-11 rounded overflow-hidden bg-black/40 shrink-0">
-                  {getBestArtworkUrl(t) ? (
-                    <img src={getBestArtworkUrl(t)} alt="" className="w-full h-full object-cover" />
-                  ) : null}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm text-white truncate">{cleanText(t.title)}</p>
-                  <p className="text-xs text-white/60 truncate">{cleanText(t.artist)}</p>
-                </div>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => playFrom(queue, i)}
+                  className="tap flex items-center gap-3 flex-1 min-w-0 py-2 text-left"
+                >
+                  <div className="w-11 h-11 rounded overflow-hidden bg-black/40 shrink-0">
+                    {getBestArtworkUrl(t) ? (
+                      <img src={getBestArtworkUrl(t)} alt="" className="w-full h-full object-cover" />
+                    ) : null}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-white truncate">{cleanText(t.title)}</p>
+                    <p className="text-xs text-white/60 truncate">{cleanText(t.artist)}</p>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  aria-label="Drag to reorder"
+                  className="p-2 text-white/40 shrink-0 touch-none"
+                  onTouchStart={() => setDragFrom(i)}
+                >
+                  <GripVertical size={18} />
+                </button>
+              </div>
             ))}
           </div>
         )}
@@ -228,13 +280,16 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
             <h1 className="text-xl font-bold text-white truncate">
               {cleanText(currentTrack.title)}
             </h1>
-            <button
-              type="button"
-              onClick={() => onOpenArtist?.(currentTrack.artist)}
-              className="text-sm text-white/70 truncate block max-w-full text-left"
-            >
-              {cleanText(currentTrack.artist)}
-            </button>
+            <div className="flex items-center gap-2 min-w-0">
+              <button
+                type="button"
+                onClick={() => onOpenArtist?.(currentTrack.artist)}
+                className="text-sm text-white/70 truncate max-w-full text-left"
+              >
+                {cleanText(currentTrack.artist)}
+              </button>
+              <SourceBadge track={currentTrack} className="shrink-0" />
+            </div>
           </div>
 
           <div className="flex items-center gap-1 pt-0.5">
@@ -335,6 +390,15 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
           sit right on the screen edge and get swallowed by the system's
           back-gesture area. */}
       <div className="shrink-0 pb-safe pt-3">
+        {/* Where the sound is actually going. Only shown when it ISN'T the
+            phone's own speaker, so it stays quiet until it's useful. */}
+        {audioOutput && (
+          <div className="flex items-center justify-center gap-1.5 px-6 pb-1.5 text-[11px] text-spotify-essential-bright-accent">
+            <Bluetooth size={13} className="shrink-0" />
+            <span className="truncate">{audioOutput}</span>
+          </div>
+        )}
+
         <div className="flex items-center justify-around px-6 pb-2">
           {TABS.map(({ id, label, Icon }) => (
             <button

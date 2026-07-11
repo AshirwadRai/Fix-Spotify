@@ -1,5 +1,5 @@
 import { createContext, useState, useContext, useRef, useEffect, useCallback } from 'react';
-import { getPlayableSource, getPlayableSources, normalizeTrack, playableTracks, writeStoredTracks, getBestArtworkUrl, cleanText, getTrackId, isPlayableTrack, applyEnrichment } from '../utils/tracks';
+import { getPlayableSource, getPlayableSources, normalizeTrack, writeStoredTracks, getBestArtworkUrl, cleanText, getTrackId, isPlayableTrack, applyEnrichment } from '../utils/tracks';
 import { readAppSettings, qualityToBitrate } from '../utils/settings';
 import { apiUrl } from '../utils/config';
 import { getOfflineEntry, removeOfflineEntry } from '../utils/downloads';
@@ -9,6 +9,33 @@ const PlayerContext = createContext();
 
 function getAppSettings() {
   return readAppSettings();
+}
+
+// ── Resume state ────────────────────────────────────────────────────────────
+// Persist the last track + timestamp so reopening the app lands exactly where
+// the user left off (paused). Kept tiny and separate from Recently Played.
+const RESUME_KEY = 'resumeState';
+
+function saveResumeState(track, position) {
+  try {
+    if (!track) return;
+    localStorage.setItem(RESUME_KEY, JSON.stringify({
+      track,
+      position: Math.max(0, Math.floor(position || 0)),
+      savedAt: Date.now(),
+    }));
+  } catch { /* storage full / unavailable — ignore */ }
+}
+
+function readResumeState() {
+  try {
+    const raw = localStorage.getItem(RESUME_KEY);
+    if (!raw) return null;
+    const s = JSON.parse(raw);
+    return s && s.track ? s : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -128,6 +155,11 @@ export function PlayerProvider({ children }) {
   // Consecutive fully-failed tracks (all sources dead). Caps auto-skip so a
   // dead queue doesn't loop forever; reset on any successful play.
   const autoSkipRef = useRef(0);
+  // Seconds to seek to once the next source is buffered. Set when RESTORING the
+  // last session (see restore effect); applied in handleCanPlay, then cleared.
+  const pendingSeekRef = useRef(0);
+  // Throttle for persisting resume state during playback (localStorage write).
+  const lastSaveRef = useRef(0);
 
   useEffect(() => { repeatRef.current = repeat; }, [repeat]);
   useEffect(() => { volumeRef.current = volume; }, [volume]);
@@ -142,6 +174,14 @@ export function PlayerProvider({ children }) {
     
     const handleTimeUpdate = () => {
       setProgress(audio.currentTime);
+
+      // Persist the resume point at most once every 5s so a reopen lands on the
+      // same song at the same timestamp. Cheap and throttled — not every tick.
+      const now = Date.now();
+      if (now - lastSaveRef.current > 5000 && currentTrackRef.current && audio.currentTime > 0) {
+        lastSaveRef.current = now;
+        saveResumeState(currentTrackRef.current, audio.currentTime);
+      }
 
       // ─── Crossfade check ──────────────────────────────────────
       const settings = getAppSettings();
@@ -272,6 +312,15 @@ export function PlayerProvider({ children }) {
     const handleCanPlay = () => {
       setIsLoading(false);
       setPlaybackError(null);
+      // Restoring a session: jump to the saved timestamp once the stream can
+      // play, then clear so normal playback isn't re-seeked.
+      if (pendingSeekRef.current > 0) {
+        try {
+          audio.currentTime = pendingSeekRef.current;
+          setProgress(pendingSeekRef.current);
+        } catch { /* seek before seekable — ignore */ }
+        pendingSeekRef.current = 0;
+      }
     };
     const handleWaiting = () => setIsLoading(true);
     const handlePlaying = () => {
@@ -285,6 +334,10 @@ export function PlayerProvider({ children }) {
       // Don't set isPlaying false during crossfade (we're fading out intentionally)
       if (!crossfadingRef.current) {
         setIsPlaying(false);
+      }
+      // Pausing is a natural save point for the resume timestamp.
+      if (currentTrackRef.current && audio.currentTime > 0) {
+        saveResumeState(currentTrackRef.current, audio.currentTime);
       }
     };
     
@@ -675,7 +728,7 @@ export function PlayerProvider({ children }) {
     return () => { cancelled = true; };
   }, [currentTrack]);
 
-  const playTrack = useCallback(async (track) => {
+  const playTrack = useCallback(async (track, opts = {}) => {
     // Cancel any ongoing crossfade
     if (crossfadeTimerRef.current) {
       clearInterval(crossfadeTimerRef.current);
@@ -704,13 +757,18 @@ export function PlayerProvider({ children }) {
       setHistory(prev => [currentTrack, ...prev.slice(0, 49)]); // keep last 50
     }
     
+    // opts.autoplay === false loads the track PAUSED at opts.resumeAt (used to
+    // restore the last session on reopen). Default is play-now.
+    const autoplay = opts.autoplay !== false;
+    pendingSeekRef.current = autoplay ? 0 : (opts.resumeAt || 0);
+
     setCurrentTrack(playableTrack);
-    setIsPlaying(true);
+    setIsPlaying(autoplay);
     setIsLoading(true);
     setPlaybackError(null);
-    setProgress(0);
+    setProgress(autoplay ? 0 : (opts.resumeAt || 0));
     setDuration(0);
-    
+
     try {
       // Offline-FIRST: a downloaded track must play from disk even if its
       // streaming sources are empty/expired (and especially when there's no
@@ -759,7 +817,15 @@ export function PlayerProvider({ children }) {
       // the save on the first source dropped those tracks from Recently Played.
       saveRecentlyPlayed(playableTrack);
 
-      await audio.play();
+      // Restore mode (autoplay === false): load the source but stay paused; the
+      // browser blocks autoplay without a gesture anyway. handleCanPlay seeks to
+      // the saved timestamp. Otherwise start immediately.
+      if (autoplay) {
+        await audio.play();
+      } else {
+        audio.load();   // begin buffering so canplay fires and applies the seek
+        setIsLoading(false);
+      }
 
     } catch (err) {
       // Autoplay policy needs a user gesture and fires NO 'error' event, so the
@@ -776,6 +842,18 @@ export function PlayerProvider({ children }) {
       }
     }
   }, [currentTrack]);
+
+  // Restore the last session ONCE on mount: same song, same timestamp, paused.
+  // Uses a ref because this runs a single time while playTrack's identity changes.
+  const playTrackRef = useRef(playTrack);
+  useEffect(() => { playTrackRef.current = playTrack; }, [playTrack]);
+  useEffect(() => {
+    const s = readResumeState();
+    if (s && s.track) {
+      playTrackRef.current(s.track, { autoplay: false, resumeAt: s.position });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const togglePlay = useCallback(() => {
     if (!currentTrack) return;
@@ -920,6 +998,19 @@ export function PlayerProvider({ children }) {
     setQueue(q => q.filter((_, i) => i !== index));
   }, []);
 
+  // Move a queue item from one position to another (drag-to-reorder). Also
+  // updates the remembered natural order so a later un-shuffle stays consistent.
+  const reorderQueue = useCallback((from, to) => {
+    setQueue(q => {
+      if (from === to || from < 0 || to < 0 || from >= q.length || to >= q.length) return q;
+      const next = q.slice();
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      naturalOrderRef.current = null; // manual order now wins over shuffle memory
+      return next;
+    });
+  }, []);
+
   const clearQueue = useCallback(() => {
     setQueue([]);
   }, []);
@@ -1025,6 +1116,7 @@ export function PlayerProvider({ children }) {
         addToQueue,
         addNext,
         removeFromQueue,
+        reorderQueue,
         clearQueue,
         toggleShuffle,
         cycleRepeat,

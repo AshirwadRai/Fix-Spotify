@@ -176,3 +176,13 @@
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+/* <input type="search"> renders a native "clear" (×) button in the WebView.
+   We draw our own X, so hide the native one — otherwise the search bar shows
+   TWO clear icons. */
+input[type="search"]::-webkit-search-cancel-button,
+input[type="search"]::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+  display: none;
+}

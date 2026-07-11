@@ -6,8 +6,9 @@ import { normalizeTracks, applyEnrichment } from '../../utils/tracks';
 import { useRecentSearches, addRecentSearch, removeRecentSearch } from '../../utils/searchHistory';
 import { usePlayer } from '../../store/PlayerContext';
 import { usePlayFrom } from '../usePlayFrom';
+import { isSpotifyUrl } from '../components/SpotifyImportSheet';
 
-export function SearchTab({ onMenu, onOpenArtist, onOpenAlbum }) {
+export function SearchTab({ onMenu, onOpenArtist, onOpenAlbum, onImportSpotify }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [artists, setArtists] = useState([]);
@@ -24,6 +25,13 @@ export function SearchTab({ onMenu, onOpenArtist, onOpenAlbum }) {
   const runSearch = useCallback(async (q) => {
     const term = q.trim();
     if (!term) return;
+
+    // A pasted Spotify playlist/album link isn't a search — it's an import.
+    if (isSpotifyUrl(term)) {
+      inputRef.current?.blur();
+      onImportSpotify(term);
+      return;
+    }
 
     // Every search gets a ticket. A slow earlier request that lands after a
     // newer one must not overwrite the fresher results.
@@ -64,7 +72,7 @@ export function SearchTab({ onMenu, onOpenArtist, onOpenAlbum }) {
     } finally {
       if (ticket === reqIdRef.current) setLoading(false);
     }
-  }, []);
+  }, [onImportSpotify]);
 
   const clear = () => {
     setQuery('');
@@ -95,7 +103,7 @@ export function SearchTab({ onMenu, onOpenArtist, onOpenAlbum }) {
               onChange={(e) => setQuery(e.target.value)}
               type="search"
               enterKeyHint="search"
-              placeholder="Songs, artists, albums"
+              placeholder="Songs, artists, or a Spotify link"
               className="w-full h-12 pl-11 pr-10 rounded bg-white text-black text-[15px] placeholder:text-black/50 outline-none"
             />
             {query && (

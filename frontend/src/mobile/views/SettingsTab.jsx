@@ -1,9 +1,13 @@
-import { Check, RotateCcw, HardDrive, Info, ChevronLeft } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Check, RotateCcw, HardDrive, Info, ChevronLeft, RefreshCw } from 'lucide-react';
 import {
   useAppSettings, writeAppSetting, writeAppSettings, DEFAULT_SETTINGS,
 } from '../../utils/settings';
 import { useDownloads } from '../../store/DownloadsContext';
 import { toast } from '../../utils/toast';
+import {
+  isAndroid, getAppVersion, checkForUpdate, installUpdate, registerUpdateHandlers,
+} from '../androidBridge';
 
 const QUALITIES = [
   { value: 0, label: 'Auto', hint: 'Adjusts automatically based on source' },
@@ -190,6 +194,8 @@ export function SettingsTab({ onClose }) {
           </div>
         </Section>
 
+        <UpdateSection />
+
         <Section title="Reset">
           <button
             type="button"
@@ -204,12 +210,99 @@ export function SettingsTab({ onClose }) {
           </button>
         </Section>
 
-        <p className="px-4 py-6 text-[11px] text-spotify-essential-subdued">
-          Fix_Spotify for Android · v1.0.0
-        </p>
-
         <div className="h-6" />
       </div>
     </div>
+  );
+}
+
+/**
+ * In-app updates.
+ *
+ * Installing a new APK OVER the existing one keeps everything — playlists,
+ * likes, history, resume point — because Android preserves app data across an
+ * update (same package + same signing key). It's UNINSTALLING that wipes it.
+ * So this flow is lossless, and the copy says so, because that's exactly the
+ * thing users are afraid of.
+ */
+function UpdateSection() {
+  const [state, setState] = useState('idle');   // idle | checking | current | found | downloading | failed
+  const [info, setInfo] = useState(null);
+  const [pct, setPct] = useState(0);
+
+  const version = getAppVersion();
+
+  useEffect(() => registerUpdateHandlers({
+    onResult: (res) => {
+      setInfo(res);
+      setState(res?.available ? 'found' : 'current');
+    },
+    onProgress: (p) => {
+      if (p < 0) { setState('failed'); return; }
+      setPct(p);
+    },
+  }), []);
+
+  // Check once on open — silent when already current, so it never nags.
+  useEffect(() => {
+    if (isAndroid()) {
+      setState('checking');
+      checkForUpdate();
+    }
+  }, []);
+
+  if (!isAndroid()) return null;
+
+  return (
+    <Section title="Updates">
+      <div className="flex items-start gap-3 py-1">
+        <RefreshCw size={18} className="text-spotify-text-subdued shrink-0 mt-0.5" />
+        <div className="min-w-0 flex-1">
+          <p className="text-[14px]">
+            {state === 'found'
+              ? `Version ${info.version} is available`
+              : `You're on version ${version || '—'}`}
+          </p>
+
+          <p className="text-[12px] text-spotify-text-subdued mt-1 leading-snug">
+            {state === 'checking' && 'Checking for updates…'}
+            {state === 'current' && "You're up to date."}
+            {state === 'failed' && 'Update failed. Check your connection and try again.'}
+            {state === 'found' &&
+              'Updating installs over the current app — your playlists, liked songs and history are kept.'}
+            {state === 'downloading' && `Downloading… ${pct}%`}
+          </p>
+
+          {state === 'found' && (
+            <button
+              type="button"
+              onClick={() => { setState('downloading'); setPct(0); installUpdate(); }}
+              className="mt-3 px-5 py-2 rounded-full bg-spotify-essential-bright-accent text-black text-[13px] font-semibold"
+            >
+              Download &amp; install
+            </button>
+          )}
+
+          {(state === 'current' || state === 'failed') && (
+            <button
+              type="button"
+              onClick={() => { setState('checking'); checkForUpdate(); }}
+              className="mt-3 px-5 py-2 rounded-full bg-white/10 text-[13px] font-semibold"
+            >
+              Check again
+            </button>
+          )}
+
+          {state === 'downloading' && (
+            <div className="h-1 bg-white/10 rounded-full mt-3 overflow-hidden">
+              <div
+                className="h-full bg-spotify-essential-bright-accent transition-[width]"
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+          )}
+        </div>
+      </div>
+    </Section>
   );
 }

@@ -55,6 +55,33 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x mobile/android/gradlew
 
+      # Sign with the REAL release key so the APK can update an existing install
+      # in place (keeping the user's playlists/likes/history). Without these
+      # secrets the build falls back to the debug key — fine for a test build,
+      # but such an APK cannot update a properly-signed one.
+      #
+      # Set them up once:
+      #   base64 -w0 mobile/android/app/fixspotify-release.jks   -> ANDROID_KEYSTORE_B64
+      #   the store/key password                                 -> ANDROID_KEYSTORE_PASSWORD
+      - name: Restore signing keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::warning::No ANDROID_KEYSTORE_B64 secret — falling back to the debug key."
+            echo "This APK will NOT be able to update a properly-signed install."
+            exit 0
+          fi
+          echo "$KEYSTORE_B64" | base64 -d > mobile/android/app/fixspotify-release.jks
+          cat > mobile/android/app/keystore.properties <<EOF
+          storeFile=fixspotify-release.jks
+          storePassword=$KEYSTORE_PASSWORD
+          keyAlias=fixspotify
+          keyPassword=$KEYSTORE_PASSWORD
+          EOF
+          echo "Release keystore restored — APK will be update-compatible."
+
       # ANDROID_HOME is preinstalled on ubuntu-latest, so Gradle finds the SDK
       # with no local.properties needed.
       - name: Build release APK

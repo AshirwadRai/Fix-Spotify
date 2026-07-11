@@ -492,6 +492,24 @@ class ApiClient {
   }
 
   /**
+   * Resolve a public Spotify playlist/album URL into PLAYABLE tracks.
+   *
+   * Spotify is never streamed from — we only read its tracklist and re-find each
+   * song on JioSaavn/SoundCloud. Returns
+   * { name, image, tracks, missing, total, matched } or { error }. Never throws.
+   */
+  async importSpotify(url) {
+    try {
+      const r = await fetch(apiUrl(`/spotify/import?url=${encodeURIComponent(url || '')}`));
+      const data = await r.json();
+      if (!r.ok) return { error: data?.error || 'Import failed', tracks: [] };
+      return data;
+    } catch (e) {
+      return { error: String(e), tracks: [] };
+    }
+  }
+
+  /**
    * YouTube connection (opt-in). Status / connect (pick a browser to read
    * login cookies from) / disconnect. All never throw → safe for Settings UI.
    */

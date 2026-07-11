@@ -12,6 +12,8 @@
 // In a desktop browser `window.AndroidPlayer` is undefined and every call here
 // is a no-op, so `npm run dev:mobile` still works.
 
+import { useState, useEffect } from 'react';
+
 /** True when running inside the Android WebView (the @JavascriptInterface exists). */
 export function isAndroid() {
   return typeof window !== 'undefined' && window.AndroidPlayer != null;
@@ -37,6 +39,99 @@ export function reportPlayback({ track, isPlaying, duration, position, artwork }
     );
   } catch {
     /* bridge unavailable — non-fatal, playback still works in-app */
+  }
+}
+
+/**
+ * The name of the device audio is currently playing OUT to — e.g. "WH-1000XM4".
+ * Empty string when it's just the phone's own speaker (nothing worth showing),
+ * or when not running on Android.
+ *
+ * Routing is an OS concern the WebView can't see, so this comes from
+ * AudioManager on the native side.
+ */
+export function getAudioOutput() {
+  if (!isAndroid() || typeof window.AndroidPlayer.getAudioOutput !== 'function') return '';
+  try {
+    return window.AndroidPlayer.getAudioOutput() || '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * React hook: the current audio output device name, polled.
+ *
+ * Polling (rather than an event) because Android gives the WebView no callback
+ * when routing changes; 4s is frequent enough to feel live after connecting
+ * earbuds, and the call is a cheap in-process JNI hop.
+ */
+export function useAudioOutput(active = true) {
+  const [device, setDevice] = useState('');
+
+  useEffect(() => {
+    if (!active || !isAndroid()) {
+      setDevice('');
+      return undefined;
+    }
+    const read = () => setDevice(getAudioOutput());
+    read();
+    const id = setInterval(read, 4000);
+    return () => clearInterval(id);
+  }, [active]);
+
+  return device;
+}
+
+/** Installed app version ("1.1.0"), or '' outside Android. */
+export function getAppVersion() {
+  if (!isAndroid() || typeof window.AndroidPlayer.getVersion !== 'function') return '';
+  try {
+    return window.AndroidPlayer.getVersion() || '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * In-app updates.
+ *
+ * Ask Android to look for a newer GitHub release. The check is async on the
+ * native side, so the answer arrives via window.__androidUpdate rather than as a
+ * return value.
+ *
+ *   onResult({ available, version, notes })
+ *   onProgress(pct)   // 0..100 while downloading, -1 on failure
+ *
+ * Returns a cleanup function.
+ */
+export function registerUpdateHandlers({ onResult, onProgress }) {
+  if (typeof window === 'undefined') return () => {};
+  window.__androidUpdate = (info) => onResult?.(info || { available: false });
+  window.__androidUpdateProgress = (pct) => onProgress?.(pct);
+  return () => {
+    delete window.__androidUpdate;
+    delete window.__androidUpdateProgress;
+  };
+}
+
+export function checkForUpdate() {
+  if (!isAndroid() || typeof window.AndroidPlayer.checkForUpdate !== 'function') return false;
+  try {
+    window.AndroidPlayer.checkForUpdate();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Download the pending update and open the system installer. */
+export function installUpdate() {
+  if (!isAndroid() || typeof window.AndroidPlayer.installUpdate !== 'function') return;
+  try {
+    window.AndroidPlayer.installUpdate();
+  } catch {
+    /* non-fatal */
   }
 }
 

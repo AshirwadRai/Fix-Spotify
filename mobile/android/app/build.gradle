@@ -8,9 +8,41 @@ plugins {
 def repoRoot = file("$rootDir/../..")
 def pythonSrc = file("src/main/python")
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Release signing
+// ─────────────────────────────────────────────────────────────────────────────
+// Android identifies an app by (applicationId + SIGNING KEY). Install an APK
+// signed with a DIFFERENT key and Android refuses to treat it as an update — the
+// user must uninstall first, which WIPES their playlists, likes and history.
+//
+// So the release key must be stable and long-lived. It is deliberately NOT in
+// git: whoever holds it can publish an "update" that phones will trust.
+//   • locally  -> app/fixspotify-release.jks + app/keystore.properties (gitignored)
+//   • in CI    -> the ANDROID_KEYSTORE_B64 / ANDROID_KEYSTORE_PASSWORD secrets
+//
+// Without either, we fall back to the debug key so a fresh clone still builds —
+// but such an APK can't update a properly-signed install.
+def keystorePropsFile = rootProject.file('app/keystore.properties')
+def hasKeystore = keystorePropsFile.exists()
+def keystoreProps = new Properties()
+if (hasKeystore) {
+    keystorePropsFile.withInputStream { keystoreProps.load(it) }
+}
+
 android {
     namespace 'com.xmrnoobx.fixspotify'
     compileSdk 34
+
+    signingConfigs {
+        if (hasKeystore) {
+            release {
+                storeFile rootProject.file("app/${keystoreProps['storeFile']}")
+                storePassword keystoreProps['storePassword']
+                keyAlias keystoreProps['keyAlias']
+                keyPassword keystoreProps['keyPassword']
+            }
+        }
+    }
 
     defaultConfig {
         applicationId "com.xmrnoobx.fixspotify"
@@ -18,8 +50,8 @@ android {
         // service relies on to survive being backgrounded during playback.
         minSdk 26
         targetSdk 34
-        versionCode 1
-        versionName "1.0.0"
+        versionCode 2
+        versionName "1.1.0"
 
         ndk {
             // Chaquopy ships a native CPython per ABI, and each one adds ~10 MB
@@ -36,10 +68,10 @@ android {
             shrinkResources false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'),
                           'proguard-rules.pro'
-            // Ships with the debug signing key so `assembleRelease` produces an
-            // installable APK out of the box. Swap in your own keystore before
-            // distributing to anyone else.
-            signingConfig signingConfigs.debug
+            // Real key when available (so this APK can UPDATE an installed one
+            // in place, keeping user data); debug key otherwise, so a fresh
+            // clone still builds without secrets.
+            signingConfig hasKeystore ? signingConfigs.release : signingConfigs.debug
         }
         debug {
             applicationIdSuffix ".debug"

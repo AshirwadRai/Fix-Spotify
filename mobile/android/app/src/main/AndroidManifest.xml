@@ -13,6 +13,10 @@
     <!-- The foreground-service notification. Required from Android 13 (API 33). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- In-app updates: download the new APK and hand it to the system
+         installer. The user still confirms; we never install silently. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <!-- Downloads go to the app-specific external dir, which needs NO storage
          permission on any API level. That is why WRITE_EXTERNAL_STORAGE and
          MANAGE_EXTERNAL_STORAGE are deliberately absent. -->
@@ -46,6 +50,19 @@
             android:name=".BackendService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
+
+
+        <!-- The installer needs a content:// URI for the downloaded APK; a
+             file:// URI throws FileUriExposedException on API 24+. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
     </application>
 </manifest>

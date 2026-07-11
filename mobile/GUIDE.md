@@ -32,9 +32,10 @@ To get an APK **without** cutting a release (e.g. to test a branch): open the
 **Actions** tab → *Build Android APK* → *Run workflow* → download it from the
 run's **Artifacts**.
 
-> The APK is signed with Android's debug key, so phones show an "unknown
-> developer" prompt on install (**More info → Install anyway**). Swap in a real
-> keystore in `mobile/android/app/build.gradle` before a public launch.
+> The APK is self-signed (not Play Store), so phones show an "unknown developer"
+> prompt on first install (**More info → Install anyway**). From v1.1.0 it uses a
+> stable release key, which is what lets later versions install as a lossless
+> *update* — see [§9](#9-updates-and-why-you-wont-lose-your-library).
 
 ---
 
@@ -249,3 +250,58 @@ backend, or a hosted backend).
 `Android/data/com.xmrnoobx.fixspotify/files/Music/` — no storage permission
 needed, visible over USB, removed on uninstall. Downloaded songs play with no
 internet from the Downloads tab and the Library → Downloaded list.
+
+---
+
+## 9. Updates (and why you won't lose your library)
+
+**The fear is real but the cause is uninstalling, not updating.**
+
+Your playlists, liked songs, history and resume point live in the WebView's
+`localStorage`, inside the app's private data directory. Android **keeps that
+directory across an app update** — it only wipes it on *uninstall*. The same is
+true on desktop: Tauri stores `localStorage` in the OS webview data dir, not in
+the app bundle, so an installer upgrade leaves it alone.
+
+Android only accepts an APK as an *update* when **both** the package name **and
+the signing key** match the installed app. Earlier builds were debug-signed, so
+each new one looked like a different app and had to be uninstalled — which is
+exactly what wiped everything.
+
+From **v1.1.0** the APK is signed with a stable release key, so every future
+update installs straight over the top, losslessly.
+
+> **One-time step:** v1.1.0 changes the signing key, so it cannot update the
+> older debug-signed build. Uninstall once, install v1.1.0, and you'll never have
+> to again.
+
+### How users get updates now
+
+| | How |
+|---|---|
+| **Mobile** | The app checks GitHub on open (**Settings → Updates**). If a newer release exists it offers **Download & install** — it fetches the APK and hands it to Android's installer. Data is preserved. |
+| **Desktop** | Tauri's updater polls `latest.json` on the releases page, verifies its signature, and prompts to install. |
+
+Both are driven by the same thing you already do:
+
+```bash
+git tag v1.2.0
+git push origin v1.2.0
+```
+
+CI builds the `.exe` and the `.apk`, signs them, and publishes both (plus
+`latest.json`) to one release. Every existing install then sees the update.
+
+### Required secrets (set once, in GitHub → Settings → Secrets)
+
+| Secret | What |
+|---|---|
+| `ANDROID_KEYSTORE_B64` | `base64 -w0 mobile/android/app/fixspotify-release.jks` |
+| `ANDROID_KEYSTORE_PASSWORD` | the keystore password |
+| `TAURI_SIGNING_PRIVATE_KEY` | contents of `~/.tauri/fixspotify.key` |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | its password |
+
+> **Back up both private keys.** Lose the Android keystore and you can never ship
+> an update to existing installs again — every user would have to uninstall and
+> lose their library. They are gitignored on purpose: anyone holding them can
+> publish an "update" that users' devices will trust.

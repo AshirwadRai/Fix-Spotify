@@ -9,6 +9,7 @@ import { MiniPlayer } from './components/MiniPlayer';
 import { NowPlayingSheet } from './components/NowPlayingSheet';
 import { TrackActionSheet } from './components/TrackActionSheet';
 import { AddToPlaylistSheet } from './components/AddToPlaylistSheet';
+import { SpotifyImportSheet } from './components/SpotifyImportSheet';
 import { HomeTab } from './views/HomeTab';
 import { SearchTab } from './views/SearchTab';
 import { LibraryTab } from './views/LibraryTab';
@@ -26,6 +27,7 @@ function Shell() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [menuTrack, setMenuTrack] = useState(null);
   const [playlistTrack, setPlaylistTrack] = useState(null);   // "add to playlist" target
+  const [spotifyUrl, setSpotifyUrl] = useState(null);         // pasted Spotify import
   const [collection, setCollection] = useState(null);         // remote album/artist/playlist
   const [list, setList] = useState(null);                     // local liked/playlist/offline
   const [online, setOnline] = useState(navigator.onLine);
@@ -84,12 +86,13 @@ function Shell() {
       if (menuTrack) { setMenuTrack(null); return; }
       if (nowPlayingOpen) { setNowPlayingOpen(false); return; }
       if (settingsOpen) { setSettingsOpen(false); return; }
+      if (spotifyUrl) { setSpotifyUrl(null); return; }
       if (list) { setList(null); return; }
       if (collection) { setCollection(null); return; }
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
-  }, [playlistTrack, menuTrack, nowPlayingOpen, settingsOpen, list, collection]);
+  }, [playlistTrack, menuTrack, nowPlayingOpen, settingsOpen, spotifyUrl, list, collection]);
 
   const pushOverlay = useCallback(() => {
     try { window.history.pushState({ overlay: true }, ''); } catch { /* ignore */ }
@@ -107,6 +110,8 @@ function Shell() {
 
   const openList = useCallback((v) => { pushOverlay(); setList(v); }, [pushOverlay]);
 
+  const openSpotifyImport = useCallback((u) => { pushOverlay(); setSpotifyUrl(u); }, [pushOverlay]);
+
   // Tapping a bottom-nav destination must take you THERE — so it closes any
   // detail overlay first. Without this, the nav is visible over an open album
   // (by design), but tapping Search would leave the album covering the screen.
@@ -114,6 +119,7 @@ function Shell() {
     setCollection(null);
     setList(null);
     setSettingsOpen(false);
+    setSpotifyUrl(null);
     setTab(next);
   }, []);
 
@@ -181,7 +187,12 @@ function Shell() {
           <HomeTab onHomeItem={handleHomeItem} onOpenSettings={openSettings} />
         </div>
         <div className={tab === 'search' ? 'h-full' : 'hidden'}>
-          <SearchTab onMenu={openMenu} onOpenArtist={openArtist} onOpenAlbum={openAlbum} />
+          <SearchTab
+            onMenu={openMenu}
+            onOpenArtist={openArtist}
+            onOpenAlbum={openAlbum}
+            onImportSpotify={openSpotifyImport}
+          />
         </div>
         <div className={tab === 'library' ? 'h-full' : 'hidden'}>
           <LibraryTab onOpenList={openList} onOpenCollection={openCollection} />
@@ -204,6 +215,14 @@ function Shell() {
           <TrackListSheet
             view={list}
             onClose={() => setList(null)}
+            onMenu={openMenu}
+          />
+        )}
+
+        {spotifyUrl && (
+          <SpotifyImportSheet
+            url={spotifyUrl}
+            onClose={() => setSpotifyUrl(null)}
             onMenu={openMenu}
           />
         )}
