@@ -17,6 +17,7 @@ from enum import Enum
 from collections import defaultdict
 
 from components.fuzzy_matcher import FuzzyMatcher
+from components.fuzz_compat import fuzz
 
 
 class SourceType(Enum):
@@ -271,6 +272,88 @@ class SourceMerger:
         title = self._key_title(track.get("title", ""), artist)
         return f"{title}|{artist}"
 
+    # Sources whose `artist` field is a real artist credit. SoundCloud and
+    # YouTube report the UPLOADER instead — "Blinding Lights" comes back credited
+    # to "Minh Prime" or "8DZone" — so their artist string can never be used to
+    # decide whether two rows are the same song.
+    TRUSTED_ARTIST_SOURCES = {
+        SourceType.JIOSAAVN,
+        SourceType.ITUNES,
+        SourceType.MUSICBRAINZ,
+    }
+
+    TITLE_MATCH_THRESHOLD = 88.0    # token_set_ratio, 0-100
+    ARTIST_MATCH_THRESHOLD = 80.0
+    DURATION_TOLERANCE_SEC = 15     # same song, different master/encode
+
+    def _duration_sec(self, track: Dict) -> Optional[int]:
+        ms = track.get("duration_ms")
+        if ms:
+            return int(ms) // 1000
+        sec = track.get("duration_sec") or track.get("duration")
+        return int(sec) if sec else None
+
+    def _resolve_key(
+        self, track: Dict, source_type: SourceType, buckets: List[Dict[str, Any]]
+    ) -> str:
+        """Find which existing song this row belongs to, or start a new bucket.
+
+        The old code keyed on an EXACT normalized `title|artist`, so the same song
+        from two sources only merged if both agreed on the artist string
+        character-for-character. They never do — SoundCloud names the uploader —
+        so one song showed up as three rows. This matches fuzzily instead.
+        """
+        # ISRC is authoritative. Never fuzzy-merge across a known ISRC boundary.
+        isrc = track.get("isrc") or track.get("isrc_id")
+        if isrc:
+            return f"isrc:{str(isrc).lower()}"
+
+        artist = self._normalize_text(track.get("artist", ""))
+        title = self._key_title(track.get("title", ""), artist)
+        trusted = source_type in self.TRUSTED_ARTIST_SOURCES
+        duration = self._duration_sec(track)
+
+        for b in buckets:
+            if fuzz.token_set_ratio(title, b["title"]) < self.TITLE_MATCH_THRESHOLD:
+                continue
+
+            # Same title — but is it the same recording? Duration is the cheapest
+            # honest signal, and it's what stops a 3-minute single from absorbing
+            # a 60-minute mix that happens to share the title.
+            if duration and b["duration"]:
+                if abs(duration - b["duration"]) > self.DURATION_TOLERANCE_SEC:
+                    continue
+
+            # Only compare artists when BOTH sides actually report an artist.
+            # If either is an uploader handle, a title+duration match is all the
+            # evidence available — and it's the evidence we want to act on.
+            if trusted and b["trusted"]:
+                if (
+                    fuzz.token_set_ratio(artist, b["artist"])
+                    < self.ARTIST_MATCH_THRESHOLD
+                ):
+                    continue
+
+            # A trusted source joining an uploader-named bucket upgrades it: the
+            # real artist credit wins for any later comparison.
+            if trusted and not b["trusted"]:
+                b["artist"], b["trusted"] = artist, True
+            if duration and not b["duration"]:
+                b["duration"] = duration
+            return b["key"]
+
+        key = f"{title}|{artist}"
+        buckets.append(
+            {
+                "key": key,
+                "title": title,
+                "artist": artist,
+                "trusted": trusted,
+                "duration": duration,
+            }
+        )
+        return key
+
     def merge_results(
         self,
         source_results: Dict[SourceType, List[Dict]],
@@ -291,6 +374,9 @@ class SourceMerger:
             list
         )  # key -> [(source, track_dict), ...]
 
+        # Buckets for the fuzzy pass — one per distinct song found so far.
+        buckets: List[Dict[str, Any]] = []
+
         # Process each source's results
         for source_type, results in source_results.items():
             self.priorities.get(source_type, 0)
@@ -298,7 +384,7 @@ class SourceMerger:
             for raw in results:
                 # Normalize the raw result
                 track = self._normalize_result(raw, source_type)
-                key = self._generate_key(track)
+                key = self._resolve_key(track, source_type, buckets)
                 all_tracks[key].append((source_type, track))
 
         # Merge tracks with same key

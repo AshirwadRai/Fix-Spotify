@@ -19,7 +19,43 @@
   --color-spotify-essential-negative: #e91429;
   --color-spotify-background-tinted-base: rgba(255, 255, 255, 0.07);
   --color-spotify-background-tinted-highlight: rgba(255, 255, 255, 0.1);
+
+  /* ── Motion ──────────────────────────────────────────────────────────────
+     Three durations, two curves. Everything that moves picks from these, so the
+     app has one rhythm instead of each component inventing its own.
+
+     The curves matter more than the numbers: ease-out-soft decelerates into
+     rest, which is what makes a sheet feel like it settled rather than stopped.
+     Reserve ease-spring (it overshoots) for things that should feel physical —
+     a sheet arriving, not a colour changing. */
+  --motion-fast: 140ms;   /* taps, colour + opacity changes */
+  --motion-base: 240ms;   /* sheets, overlays, tab switches */
+  --motion-slow: 380ms;   /* artwork, hero collapse */
+
+  --ease-soft: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.28, 0.64, 1);
+
+  --animate-fade-in: fade-in var(--motion-base) var(--ease-soft);
+  --animate-slide-up: slide-up var(--motion-base) var(--ease-spring);
 }
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes slide-up {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
+/* Named durations/curves as utilities, so JSX reads `duration-base ease-soft`
+   instead of hardcoding milliseconds. */
+@utility duration-fast { transition-duration: var(--motion-fast); }
+@utility duration-base { transition-duration: var(--motion-base); }
+@utility duration-slow { transition-duration: var(--motion-slow); }
+@utility ease-soft    { transition-timing-function: var(--ease-soft); }
+@utility ease-spring  { transition-timing-function: var(--ease-spring); }
 
 @layer base {
   html,
@@ -109,13 +145,30 @@
   transform: translateY(100%);
 }
 
-/* Native-feeling press feedback: no hover states on touch, so scale instead. */
+/* Native-feeling press feedback: no hover states on touch, so scale instead.
+   The press is instant but the RELEASE eases back — that asymmetry is what
+   reads as responsive rather than sluggish. */
 .tap {
-  transition: transform 120ms ease, opacity 120ms ease;
+  transition: transform var(--motion-base) var(--ease-spring),
+              opacity var(--motion-base) var(--ease-soft);
 }
 .tap:active {
+  transition-duration: var(--motion-fast);
   transform: scale(0.96);
   opacity: 0.75;
+}
+
+/* Vestibular safety, and it also keeps the app usable when the OS is set to
+   minimise motion — animations collapse to near-instant rather than vanishing,
+   so nothing appears without explanation. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
 }
 
 /* The seek/volume sliders. */

@@ -18,8 +18,9 @@ import { SettingsTab } from './views/SettingsTab';
 import { CollectionSheet } from './views/CollectionSheet';
 import { TrackListSheet } from './views/TrackListSheet';
 import { reportPlayback, registerTransport } from './androidBridge';
+import { ArtistPickerSheet } from './components/ArtistPickerSheet';
 import { usePlayFrom } from './usePlayFrom';
-import { getBestArtworkUrl } from '../utils/tracks';
+import { getBestArtworkUrl, splitArtists } from '../utils/tracks';
 
 function Shell() {
   const [tab, setTab] = useState('home');
@@ -28,6 +29,7 @@ function Shell() {
   const [menuTrack, setMenuTrack] = useState(null);
   const [playlistTrack, setPlaylistTrack] = useState(null);   // "add to playlist" target
   const [spotifyUrl, setSpotifyUrl] = useState(null);         // pasted Spotify import
+  const [artistChoices, setArtistChoices] = useState(null);   // multi-artist credit -> picker
   const [collection, setCollection] = useState(null);         // remote album/artist/playlist
   const [list, setList] = useState(null);                     // local liked/playlist/offline
   const [online, setOnline] = useState(navigator.onLine);
@@ -128,8 +130,23 @@ function Shell() {
     setCollection(target);
   }, [pushOverlay]);
 
-  const openArtist = useCallback((name) => {
-    if (!name) return;
+  // Callers hand us whatever the track credits — which may be several artists in
+  // one string ("Diljit Dosanjh, Sia"). Splitting HERE, rather than at each call
+  // site, is what guarantees we never again query the artist API for a performer
+  // named "A, B". One name opens straight through; several ask which.
+  const openArtist = useCallback((credit) => {
+    const names = splitArtists(credit);
+    if (!names.length) return;
+    if (names.length > 1) {
+      setArtistChoices(names);
+      return;
+    }
+    setNowPlayingOpen(false);
+    openCollection({ type: 'artist', name: names[0] });
+  }, [openCollection]);
+
+  const pickArtist = useCallback((name) => {
+    setArtistChoices(null);
     setNowPlayingOpen(false);
     openCollection({ type: 'artist', name });
   }, [openCollection]);
@@ -257,6 +274,15 @@ function Shell() {
         track={playlistTrack}
         onClose={() => setPlaylistTrack(null)}
       />
+
+      {/* Only mounts when a credit names more than one artist. */}
+      {artistChoices && (
+        <ArtistPickerSheet
+          artists={artistChoices}
+          onPick={pickArtist}
+          onClose={() => setArtistChoices(null)}
+        />
+      )}
 
       <Toaster />
     </div>

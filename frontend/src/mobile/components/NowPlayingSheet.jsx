@@ -6,7 +6,7 @@ import {
 import { usePlayer } from '../../store/PlayerContext';
 import { useDownloads } from '../../store/DownloadsContext';
 import { api } from '../../api';
-import { getBestArtworkUrl, cleanText } from '../../utils/tracks';
+import { getBestArtworkUrl, cleanText, splitArtists } from '../../utils/tracks';
 import { isLiked, toggleLiked } from '../../utils/likes';
 import { isDownloaded } from '../../utils/downloads';
 import { useDominantColor } from '../../utils/useDominantColor';
@@ -280,14 +280,23 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
             <h1 className="text-xl font-bold text-white truncate">
               {cleanText(currentTrack.title)}
             </h1>
+            {/* Each credited artist is its own target — tapping "Sia" on a
+                Diljit × Sia track opens Sia, not a fictional "Diljit, Sia". */}
             <div className="flex items-center gap-2 min-w-0">
-              <button
-                type="button"
-                onClick={() => onOpenArtist?.(currentTrack.artist)}
-                className="text-sm text-white/70 truncate max-w-full text-left"
-              >
-                {cleanText(currentTrack.artist)}
-              </button>
+              <p className="text-sm text-white/70 truncate max-w-full">
+                {splitArtists(currentTrack.artist).map((name, i, all) => (
+                  <span key={name}>
+                    <button
+                      type="button"
+                      onClick={() => onOpenArtist?.(name)}
+                      className="tap text-left transition-colors duration-fast active:text-white"
+                    >
+                      {name}
+                    </button>
+                    {i < all.length - 1 && <span aria-hidden="true">, </span>}
+                  </span>
+                ))}
+              </p>
               <SourceBadge track={currentTrack} className="shrink-0" />
             </div>
           </div>

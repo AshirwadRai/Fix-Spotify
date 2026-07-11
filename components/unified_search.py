@@ -312,10 +312,12 @@ class UnifiedSearchService:
         """
         if not tracks or not query:
             return tracks
-        try:
-            from rapidfuzz import fuzz
-        except ImportError:
-            return tracks  # ponytail: no rapidfuzz -> keep merge order. Upgrade: vendor a fallback.
+
+        # fuzz is rapidfuzz on desktop and a pure-Python equivalent on Android
+        # (rapidfuzz is a C++ extension with no Android wheel). This used to bail
+        # out on ImportError, which meant the APK returned results in raw source
+        # order — unranked, and with the junk penalty below never applied.
+        from components.fuzz_compat import fuzz
 
         import re as _re
 

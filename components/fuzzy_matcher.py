@@ -12,14 +12,11 @@ from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
 from enum import Enum
 
-try:
-    from rapidfuzz import fuzz
-
-    RAPIDFUZZ_AVAILABLE = True
-except ImportError:
-    RAPIDFUZZ_AVAILABLE = False
-    # Fallback using difflib
-    from difflib import SequenceMatcher
+# rapidfuzz on desktop, a pure-Python equivalent on Android (rapidfuzz is a C++
+# extension with no Android wheel). Either way `fuzz` honours the algorithm the
+# caller selected — the old difflib fallback collapsed every algorithm into a
+# plain character ratio, quietly discarding token-set and partial semantics.
+from components.fuzz_compat import fuzz
 
 
 class MatchAlgorithm(Enum):
@@ -80,11 +77,6 @@ class FuzzyMatcher:
     def __init__(self, config: Optional[FuzzyMatchConfig] = None):
         self.config = config or FuzzyMatchConfig()
 
-        if not RAPIDFUZZ_AVAILABLE:
-            import warnings
-
-            warnings.warn("rapidfuzz not available, using difflib fallback (slower)")
-
     def _normalize_text(self, text: str) -> str:
         """Normalize text for comparison."""
         if not text:
@@ -111,15 +103,10 @@ class FuzzyMatcher:
         if not query_norm or not candidate_norm:
             return 0.0
 
-        if RAPIDFUZZ_AVAILABLE:
-            scorer = self._get_scorer()
-            return scorer(query_norm, candidate_norm)
-        else:
-            # Fallback using difflib
-            return SequenceMatcher(None, query_norm, candidate_norm).ratio() * 100
+        return self._get_scorer()(query_norm, candidate_norm)
 
     def _get_scorer(self):
-        """Get the appropriate rapidfuzz scorer function."""
+        """Get the scorer for the configured algorithm."""
         if self.config.algorithm == MatchAlgorithm.LEVENSHTEIN:
             return fuzz.ratio
         elif self.config.algorithm == MatchAlgorithm.JARO_WINKLER:
