@@ -154,6 +154,12 @@ export function SettingsTab({ onClose }) {
             checked={!!settings.showSourceBadge}
             onChange={(v) => writeAppSetting('showSourceBadge', v)}
           />
+          <Toggle
+            label="Show Quality Badge"
+            hint="Show the streaming bitrate (e.g. 320) on the now-playing screen"
+            checked={!!settings.showQualityBadge}
+            onChange={(v) => writeAppSetting('showQualityBadge', v)}
+          />
         </Section>
 
         <StorageSection />
@@ -358,8 +364,8 @@ function YouTubeExperimentalToggle() {
             {busy
               ? 'Checking your device…'
               : state.supported
-                ? 'Runs YouTube through your phone’s browser engine. May be slower.'
-                : 'Not supported on this device’s system WebView.'}
+                ? 'Solves YouTube’s challenge on-device with a built-in JS engine. May be slower.'
+                : 'The JS engine could not start on this device.'}
           </p>
         </div>
         <button

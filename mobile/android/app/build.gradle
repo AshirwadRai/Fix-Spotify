@@ -50,8 +50,8 @@ android {
         // service relies on to survive being backgrounded during playback.
         minSdk 26
         targetSdk 34
-        versionCode 3
-        versionName "1.2.0"
+        versionCode 4
+        versionName "1.2.1"
 
         ndk {
             // Chaquopy ships a native CPython per ABI, and each one adds ~10 MB
@@ -148,8 +148,13 @@ dependencies {
     // MediaSessionCompat -> the lock-screen / notification transport controls
     // that navigator.mediaSession in the WebView drives.
     implementation 'androidx.media:media:1.7.0'
-    // EXPERIMENTAL YouTube runs its JS solver in a plain hidden WebView
-    // (JsEngine.kt) — no extra dependency needed; the WebView is already here.
+    // EXPERIMENTAL YouTube: yt-dlp needs a real JS engine to solve YouTube's
+    // signature challenge (Google made this mandatory in late 2025). Deno — what
+    // the desktop bundles — has no Android build. QuickJS DOES, and it is an
+    // officially supported yt-dlp runtime, so the solver is tested against it.
+    // This is a prebuilt "fat" AAR with native libs for every ABI (no NDK build).
+    // JsEngine.kt drives it in-process. See mobile/python/webview_jcp.py.
+    implementation 'app.cash.quickjs:quickjs-android:0.9.2'
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

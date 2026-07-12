@@ -10,6 +10,7 @@ export const DEFAULT_SETTINGS = {
   crossfadeDuration: 0,   // seconds
   normalizeVolume: false,
   showSourceBadge: false,   // off by default — don't reveal the source unless asked
+  showQualityBadge: false,  // off by default — show the streaming bitrate on the player
   autoplay: true,         // play similar songs when the queue runs out (radio)
 };
 

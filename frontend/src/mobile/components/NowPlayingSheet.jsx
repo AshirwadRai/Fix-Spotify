@@ -11,7 +11,7 @@ import { isLiked, toggleLiked } from '../../utils/likes';
 import { isDownloaded } from '../../utils/downloads';
 import { useDominantColor } from '../../utils/useDominantColor';
 import { usePlayFrom } from '../usePlayFrom';
-import { SourceBadge } from './SourceBadge';
+import { SourceBadge, QualityBadge } from './SourceBadge';
 import { useAudioOutput } from '../androidBridge';
 
 function fmt(seconds) {
@@ -300,6 +300,7 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
                 ))}
               </p>
               <SourceBadge track={currentTrack} className="shrink-0" />
+              <QualityBadge track={currentTrack} className="shrink-0" />
             </div>
           </div>
 

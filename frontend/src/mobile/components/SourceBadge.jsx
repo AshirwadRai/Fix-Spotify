@@ -1,4 +1,4 @@
-import { useAppSettings } from '../../utils/settings';
+import { useAppSettings, qualityToBitrate } from '../../utils/settings';
 import { getPlayableSource } from '../../utils/tracks';
 
 // Human label + accent for each playable source.
@@ -27,6 +27,30 @@ export function SourceBadge({ track, className = '' }) {
       className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold leading-none ${meta.cls} ${className}`}
     >
       {meta.label}
+    </span>
+  );
+}
+
+/**
+ * The streaming-quality pill (e.g. "320 kbps"), mirroring the desktop's quality
+ * indicator. Off by default; enable under Settings → "Show Quality Badge". Shows
+ * the track's real bitrate when the source reports one, otherwise the configured
+ * quality ceiling.
+ */
+export function QualityBadge({ track, className = '' }) {
+  const { showQualityBadge, audioQuality } = useAppSettings();
+  if (!showQualityBadge) return null;
+
+  const source = track?.playable_source || track?.primary_source || getPlayableSource(track);
+  const reported = Number(track?.sources?.[source]?.bitrate) || 0;
+  const kbps = reported > 0 ? reported : qualityToBitrate(audioQuality);
+  if (!kbps) return null;
+
+  return (
+    <span
+      className={`inline-flex items-center rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white/80 ${className}`}
+    >
+      {kbps} kbps
     </span>
   );
 }
