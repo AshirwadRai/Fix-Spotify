@@ -49,6 +49,11 @@
   to   { transform: translateY(0); }
 }
 
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
 /* Mini-player title marquee. Holds at the start, drifts the overflow into view,
    holds again, then snaps back — a calm loop, not a constant crawl. The scroll
    distance is the element's own overflow, passed in as --marquee-shift. */

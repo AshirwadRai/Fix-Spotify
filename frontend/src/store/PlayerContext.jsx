@@ -1085,6 +1085,7 @@ export function PlayerProvider({ children }) {
     try {
       const stored = JSON.parse(localStorage.getItem('recentlyPlayed') || '[]');
       writeStoredTracks('recentlyPlayed', [track, ...stored], 20);
+      window.dispatchEvent(new Event('recentlyplayedchange'));  // Home refreshes live
     } catch (e) {
       console.error("Failed to save recently played:", e);
     }

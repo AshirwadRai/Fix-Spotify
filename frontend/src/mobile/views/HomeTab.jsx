@@ -2,6 +2,15 @@ import { useState, useEffect } from 'react';
 import { Settings } from 'lucide-react';
 import { api } from '../../api';
 import { CardItem } from '../components/TrackItem';
+import { normalizeTracks } from '../../utils/tracks';
+
+function readRecent() {
+  try {
+    return normalizeTracks(JSON.parse(localStorage.getItem('recentlyPlayed') || '[]')).slice(0, 12);
+  } catch {
+    return [];
+  }
+}
 
 /**
  * The discover feed: horizontal rails of JioSaavn charts, trending, and new
@@ -16,29 +25,52 @@ import { CardItem } from '../components/TrackItem';
 export function HomeTab({ onHomeItem, onOpenSettings }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [recent, setRecent] = useState(readRecent);
+
+  // Refresh recents whenever the tab regains focus (a song may have played since).
+  useEffect(() => {
+    const refresh = () => setRecent(readRecent());
+    window.addEventListener('focus', refresh);
+    window.addEventListener('recentlyplayedchange', refresh);
+    return () => {
+      window.removeEventListener('focus', refresh);
+      window.removeEventListener('recentlyplayedchange', refresh);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
+    let retry = null;
+
     const load = () => {
       setLoading(true);
       api
         .getHome()
         .then((data) => {
-          if (!cancelled) setRows(data.rows || []);
+          if (cancelled) return;
+          const got = data.rows || [];
+          setRows(got);
+          // Still empty? The connection is probably down. Poll quietly until it
+          // comes back — the WebView's 'online' event is unreliable on Android,
+          // so we can't wait for it. Clear the timer the moment we succeed.
+          if (got.length === 0) {
+            retry = setTimeout(load, 4000);
+          } else if (retry) {
+            clearTimeout(retry);
+            retry = null;
+          }
         })
-        .finally(() => {
-          if (!cancelled) setLoading(false);
-        });
+        .catch(() => { if (!cancelled) retry = setTimeout(load, 4000); })
+        .finally(() => { if (!cancelled) setLoading(false); });
     };
     load();
 
-    // Auto-heal when the connection comes back: MobileApp fires this once it has
-    // CONFIRMED (not just navigator.onLine) that the internet is reachable, so a
-    // feed that failed while offline reloads itself with no manual retry.
+    // Also react to the confirmed-reconnect signal when it does fire.
     const onReconnect = () => load();
     window.addEventListener('app:reconnected', onReconnect);
     return () => {
       cancelled = true;
+      if (retry) clearTimeout(retry);
       window.removeEventListener('app:reconnected', onReconnect);
     };
   }, []);
@@ -88,6 +120,23 @@ export function HomeTab({ onHomeItem, onOpenSettings }) {
         <p className="px-4 py-10 text-center text-spotify-text-subdued text-sm">
           Couldn&apos;t load the feed. Check your connection and try again.
         </p>
+      )}
+
+      {recent.length > 0 && (
+        <section className="mt-6">
+          <h2 className="text-lg font-bold px-4 mb-3">Recently played</h2>
+          <div className="rail px-4">
+            {recent.map((t, i) => (
+              <CardItem
+                key={`recent-${t.title}-${i}`}
+                image={t.artwork_url || t.image}
+                title={t.title}
+                subtitle={t.artist}
+                onClick={() => onHomeItem({ ...t, type: 'track' }, recent)}
+              />
+            ))}
+          </div>
+        </section>
       )}
 
       {rows.map((row) => (
