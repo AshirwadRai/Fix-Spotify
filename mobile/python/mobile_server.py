@@ -1160,80 +1160,8 @@ def enrich_batch():
 # a public playlist's TRACK LIST (title + artist), then find each song on
 # JioSaavn/SoundCloud so it becomes playable here.
 #
-# No Spotify API key is needed: the public embed endpoint returns the tracklist
-# as JSON. If Spotify changes that shape this degrades to "playlist not found"
-# rather than breaking anything else.
-_SPOTIFY_URL_RE = re.compile(
-    r"open\.spotify\.com/(?:intl-[a-z]{2}/)?(playlist|album)/([A-Za-z0-9]+)"
-)
-
-
-def parse_spotify_url(url: str):
-    """-> (kind, id) for a Spotify playlist/album URL or URI, else (None, None)."""
-    if not url:
-        return None, None
-    m = _SPOTIFY_URL_RE.search(url)
-    if m:
-        return m.group(1), m.group(2)
-    # spotify:playlist:37i9dQ...
-    m = re.match(r"spotify:(playlist|album):([A-Za-z0-9]+)", url.strip())
-    if m:
-        return m.group(1), m.group(2)
-    return None, None
-
-
-def _spotify_tracklist(kind: str, sid: str):
-    """Read {name, tracks:[{title, artist}]} from Spotify's public embed page."""
-    r = http_requests.get(
-        f"https://open.spotify.com/embed/{kind}/{sid}",
-        headers={
-            "User-Agent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36",
-            "Accept-Language": "en",
-        },
-        timeout=15,
-    )
-    if r.status_code != 200:
-        return None
-
-    # The embed page ships its state in a __NEXT_DATA__ script tag.
-    m = re.search(
-        r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', r.text, re.DOTALL
-    )
-    if not m:
-        return None
-    try:
-        data = json.loads(m.group(1))
-    except Exception:
-        return None
-
-    entity = (
-        data.get("props", {}).get("pageProps", {}).get("state", {})
-        .get("data", {}).get("entity", {})
-    )
-    if not entity:
-        return None
-
-    name = entity.get("name") or entity.get("title") or "Spotify playlist"
-    items = entity.get("trackList") or []
-
-    def _norm_ws(s: str) -> str:
-        # Spotify separates multiple artists with a NON-BREAKING space
-        # ("Shakira,\xa0Burna Boy"). Left in, it poisons the search query.
-        return " ".join((s or "").replace("\xa0", " ").split())
-
-    tracks = []
-    for it in items:
-        title = _norm_ws(it.get("title"))
-        artist = _norm_ws(it.get("subtitle"))
-        if title:
-            tracks.append({"title": title, "artist": artist})
-
-    cover = ""
-    try:
-        cover = entity.get("coverArt", {}).get("sources", [{}])[0].get("url", "")
-    except Exception:
-        pass
-    return {"name": _norm_ws(name), "tracks": tracks, "image": cover}
+# Spotify fetch (URL parsing + embed scrape) lives in components/spotify_import.py.
+from components.spotify_import import parse_url as parse_spotify_url, fetch_tracklist as _spotify_tracklist
 
 
 def _title_artist_ok(item: Dict[str, str], track) -> bool:
