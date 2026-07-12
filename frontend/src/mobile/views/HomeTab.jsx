@@ -117,9 +117,17 @@ export function HomeTab({ onHomeItem, onOpenSettings }) {
       )}
 
       {!loading && rows.length === 0 && (
-        <p className="px-4 py-10 text-center text-spotify-text-subdued text-sm">
-          Couldn&apos;t load the feed. Check your connection and try again.
-        </p>
+        <div className="px-8 py-12 text-center">
+          <p className="text-3xl mb-3">🎧</p>
+          <p className="text-[15px] font-bold">
+            {navigator.onLine ? 'The feed is being shy' : "You're offline"}
+          </p>
+          <p className="text-[13px] text-spotify-text-subdued mt-1.5 leading-relaxed">
+            {navigator.onLine
+              ? "We'll keep trying in the background — no need to do anything."
+              : 'No internet, no problem — your downloads in Your Library still slap. This screen will wake up on its own when you’re back.'}
+          </p>
+        </div>
       )}
 
       {recent.length > 0 && (

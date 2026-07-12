@@ -19,7 +19,7 @@ import { TrackListSheet } from './views/TrackListSheet';
 import { reportPlayback, registerTransport } from './androidBridge';
 import { ArtistPickerSheet } from './components/ArtistPickerSheet';
 import { usePlayFrom } from './usePlayFrom';
-import { getBestArtworkUrl, splitArtists } from '../utils/tracks';
+import { getBestArtworkUrl, splitArtists, sameTrack } from '../utils/tracks';
 
 function Shell() {
   const [tab, setTab] = useState('home');
@@ -55,15 +55,30 @@ function Shell() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentTrack, isPlaying, duration]);
 
+  // Reopening the app restores the last song PAUSED. But a reconnecting
+  // Bluetooth headset (or the lingering media notification) can fire a PLAY
+  // command the instant the session comes back — which un-paused it before the
+  // user touched anything. Swallow transport "play" during the first seconds
+  // after launch unless the user has interacted; every later command is honoured.
+  const bootAtRef = useState(() => Date.now())[0];
+  useEffect(() => {
+    const markTouched = () => { window.__userTouched = true; };
+    window.addEventListener('pointerdown', markTouched, { once: true });
+    return () => window.removeEventListener('pointerdown', markTouched);
+  }, []);
+
   useEffect(
     () => registerTransport({
-      play: togglePlay,
+      play: () => {
+        if (!window.__userTouched && Date.now() - bootAtRef < 4000) return;
+        togglePlay();
+      },
       pause: togglePlay,
       next: playNext,
       previous: playPrevious,
       seek,
     }),
-    [togglePlay, playNext, playPrevious, seek]
+    [togglePlay, playNext, playPrevious, seek, bootAtRef]
   );
 
   // ── Connectivity ────────────────────────────────────────────────────────
@@ -199,8 +214,13 @@ function Shell() {
         .filter((x) => x && (x.type === 'track' || x.type === 'song' || x.track || (!x.perma_url && !x.album_id && x.type !== 'album' && x.type !== 'playlist')))
         .map((x) => x.track || x);
       const self = item.track || item;
-      const idx = Math.max(0, tracks.indexOf(self));
-      playFrom(tracks.length ? tracks : [self], idx);
+      // Callers often pass a COPY of the row item ({...t, type:'track'}), so an
+      // identity indexOf misses and index 0 played instead of the tapped song.
+      // Fall back to a title+artist match to find the real position.
+      let idx = tracks.indexOf(self);
+      if (idx < 0) idx = tracks.findIndex((x) => sameTrack(x, self));
+      if (idx < 0) { playFrom([self], 0); return; }
+      playFrom(tracks, idx);
       return;
     }
     // album / playlist — item carries type + perma_url / album_id for the

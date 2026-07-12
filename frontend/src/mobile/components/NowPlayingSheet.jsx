@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   ChevronDown, Play, Pause, SkipBack, SkipForward, Shuffle, Repeat, Repeat1,
-  Heart, Download, ListMusic, Mic2, Disc3, Check, Plus, GripVertical, Bluetooth,
+  Heart, ArrowDownCircle, ListMusic, Mic2, Disc3, Check, GripVertical, Bluetooth,
+  Flag, Share2, ListPlus, RotateCcw, RotateCw,
 } from 'lucide-react';
 import { usePlayer } from '../../store/PlayerContext';
 import { useDownloads } from '../../store/DownloadsContext';
@@ -64,6 +65,10 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
   const [lyricsLoading, setLyricsLoading] = useState(false);
   const [liked, setLiked] = useState(false);
   const [scrubbing, setScrubbing] = useState(null);
+  const [menuOpen, setMenuOpen] = useState(false);          // flag (⚑) overflow menu
+  const [seekFlash, setSeekFlash] = useState(null);         // 'back' | 'fwd' — double-tap feedback
+  const lastTapRef = useRef({ t: 0, x: 0 });
+  const seekFlashTimer = useRef(null);
 
   const artwork = currentTrack ? getBestArtworkUrl(currentTrack) : '';
   const rgb = useDominantColor(artwork);
@@ -71,9 +76,33 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
   const touchStartY = useRef(0);
   const activeLineRef = useRef(null);
 
+  // Liked state follows the SHARED store, not a local copy: a heart toggled on
+  // the mini-player (or anywhere else) updates here instantly, and vice versa.
+  // This was the "liked in the expanded window, unliked after pressing back" bug.
   useEffect(() => {
-    setLiked(currentTrack ? isLiked(currentTrack) : false);
+    const sync = () => setLiked(currentTrack ? isLiked(currentTrack) : false);
+    sync();
+    window.addEventListener('likedchange', sync);
+    return () => window.removeEventListener('likedchange', sync);
   }, [currentTrack]);
+
+  // Double-tap on the artwork: left side = back 10s, right side = forward 10s.
+  // No visible buttons — the flash overlay is the feedback (YouTube-style).
+  const onArtTap = (e) => {
+    const now = Date.now();
+    const x = e.changedTouches ? e.changedTouches[0].clientX : e.clientX;
+    const { t, x: px } = lastTapRef.current;
+    lastTapRef.current = { t: now, x };
+    if (now - t > 300 || Math.abs(x - px) > 60) return;   // not a double-tap
+    const mid = window.innerWidth / 2;
+    const back = x < mid;
+    const audioPos = scrubbing != null ? scrubbing : progress;
+    seek(back ? Math.max(0, audioPos - 10) : Math.min(duration || Infinity, audioPos + 10));
+    setSeekFlash(back ? 'back' : 'fwd');
+    clearTimeout(seekFlashTimer.current);
+    seekFlashTimer.current = setTimeout(() => setSeekFlash(null), 550);
+    lastTapRef.current = { t: 0, x: 0 };                   // consume the pair
+  };
 
   // Reset to the artwork pane on track change, so a new song never opens on the
   // previous song's lyrics.
@@ -145,7 +174,9 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
     <div
       className={`sheet ${open ? 'sheet-open' : 'sheet-closed'} fixed inset-0 z-50 flex flex-col`}
       style={{
-        background: `linear-gradient(180deg, ${bg} 0%, rgba(18,18,18,0.96) 55%, #121212 100%)`,
+        // Fully opaque stops — the earlier 0.96-alpha midpoint let the tab
+        // content ghost through the player ("background activities visible").
+        background: `linear-gradient(180deg, ${bg} 0%, #161616 55%, #121212 100%)`,
       }}
     >
       {/* Header — the drag handle for dismissing */}
@@ -161,27 +192,83 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
           <p className="text-[11px] uppercase tracking-widest text-white/70 truncate px-2">
             {currentTrack.album ? cleanText(currentTrack.album) : 'Now playing'}
           </p>
+          {/* ⚑ overflow — share / add to playlist, instead of a bare "+". */}
           <button
             type="button"
-            aria-label="Add to playlist"
-            onClick={() => onAddToPlaylist?.(currentTrack)}
+            aria-label="More options"
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((v) => !v)}
             className="tap p-1 -mr-1"
           >
-            <Plus size={22} />
+            <Flag size={20} />
           </button>
         </div>
       </div>
+
+      {menuOpen && (
+        <>
+          {/* Tap-away catcher */}
+          <button
+            type="button"
+            aria-label="Close menu"
+            className="fixed inset-0 z-10 cursor-default"
+            onClick={() => setMenuOpen(false)}
+          />
+          <div
+            className="absolute right-3 z-20 w-52 overflow-hidden rounded-xl bg-spotify-elevated-base shadow-2xl animate-fade-in"
+            style={{ top: 'calc(env(safe-area-inset-top, 0px) + 3.25rem)' }}
+          >
+            <button
+              type="button"
+              onClick={() => {
+                setMenuOpen(false);
+                const text = `${cleanText(currentTrack.title)} — ${cleanText(currentTrack.artist)}`;
+                if (navigator.share) navigator.share({ title: text, text }).catch(() => {});
+                else navigator.clipboard?.writeText(text);
+              }}
+              className="tap flex w-full items-center gap-3 px-4 py-3 text-left text-[14px] active:bg-white/10"
+            >
+              <Share2 size={17} className="text-spotify-text-subdued" /> Share
+            </button>
+            <button
+              type="button"
+              onClick={() => { setMenuOpen(false); onAddToPlaylist?.(currentTrack); }}
+              className="tap flex w-full items-center gap-3 px-4 py-3 text-left text-[14px] active:bg-white/10"
+            >
+              <ListPlus size={17} className="text-spotify-text-subdued" /> Add to playlist
+            </button>
+          </div>
+        </>
+      )}
 
       {/* Pane — the ONLY flexible row. min-h-0 lets it shrink and scroll rather
           than pushing the controls below the fold. */}
       <div className="flex-1 min-h-0 flex flex-col">
         {pane === 'art' && (
-          <div className="flex-1 min-h-0 flex items-center justify-center px-6">
-            <div className="w-full aspect-square max-h-full rounded-lg overflow-hidden shadow-2xl bg-black/30">
+          <div
+            className="relative flex-1 min-h-0 flex items-center justify-center px-6"
+            onTouchEnd={onArtTap}
+            onClick={(e) => { if (!('ontouchstart' in window)) onArtTap(e); }}
+          >
+            <div className="w-full aspect-square max-h-full rounded-lg overflow-hidden shadow-2xl bg-black/30 pointer-events-none">
               {artwork ? (
                 <img src={artwork} alt="" className="w-full h-full object-cover" />
               ) : null}
             </div>
+
+            {/* Double-tap feedback: a brief ±10s ripple on the tapped side. */}
+            {seekFlash && (
+              <div
+                className={`pointer-events-none absolute inset-y-0 flex items-center ${
+                  seekFlash === 'back' ? 'left-0 pl-8' : 'right-0 pr-8'
+                }`}
+              >
+                <div className="flex flex-col items-center gap-1 rounded-full bg-black/50 px-4 py-3 text-white animate-fade-in">
+                  {seekFlash === 'back' ? <RotateCcw size={22} /> : <RotateCw size={22} />}
+                  <span className="text-[11px] font-semibold">10s</span>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -240,9 +327,9 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
               <div
                 key={`${t.title}-${i}`}
                 data-qidx={i}
-                className={`flex items-center gap-2 rounded transition-colors ${
-                  dragFrom === i ? 'opacity-40' : ''
-                } ${dragOver === i && dragFrom !== null && dragFrom !== i ? 'bg-white/10' : ''}`}
+                className={`flex items-center gap-2 rounded-2xl px-1 transition-[background-color,transform,box-shadow] duration-fast ease-soft ${
+                  dragFrom === i ? 'scale-[1.02] bg-white/[0.07] opacity-90 shadow-lg' : ''
+                } ${dragOver === i && dragFrom !== null && dragFrom !== i ? 'bg-white/15' : ''}`}
               >
                 <button
                   type="button"
@@ -282,23 +369,17 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
             <h1 className="text-xl font-bold text-white truncate">
               {cleanText(currentTrack.title)}
             </h1>
-            {/* Each credited artist is its own target — tapping "Sia" on a
-                Diljit × Sia track opens Sia, not a fictional "Diljit, Sia". */}
+            {/* The WHOLE credit is one target. openArtist() splits it: a single
+                name opens directly; several names open the Spotify-style picker
+                sheet listing each artist — tap to choose which one to visit. */}
             <div className="flex items-center gap-2 min-w-0">
-              <p className="text-sm text-white/70 truncate max-w-full">
-                {splitArtists(currentTrack.artist).map((name, i, all) => (
-                  <span key={name}>
-                    <button
-                      type="button"
-                      onClick={() => onOpenArtist?.(name)}
-                      className="tap text-left transition-colors duration-fast active:text-white"
-                    >
-                      {name}
-                    </button>
-                    {i < all.length - 1 && <span aria-hidden="true">, </span>}
-                  </span>
-                ))}
-              </p>
+              <button
+                type="button"
+                onClick={() => onOpenArtist?.(currentTrack.artist)}
+                className="tap min-w-0 truncate text-left text-sm text-white/70 transition-colors duration-fast active:text-white"
+              >
+                {splitArtists(currentTrack.artist).join(', ')}
+              </button>
               <SourceBadge track={currentTrack} className="shrink-0" />
               <QualityBadge track={currentTrack} className="shrink-0" />
             </div>
@@ -308,7 +389,7 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
             <button
               type="button"
               aria-label={liked ? 'Remove from Liked Songs' : 'Add to Liked Songs'}
-              onClick={() => { toggleLiked(currentTrack); setLiked((v) => !v); }}
+              onClick={() => toggleLiked(currentTrack)}
               className="tap p-2"
             >
               <Heart
@@ -327,7 +408,7 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
               {isDownloaded(currentTrack) ? (
                 <Check size={22} className="text-spotify-essential-bright-accent" />
               ) : (
-                <Download size={22} className="text-white/70" />
+                <ArrowDownCircle size={22} className="text-white/70" />
               )}
             </button>
           </div>

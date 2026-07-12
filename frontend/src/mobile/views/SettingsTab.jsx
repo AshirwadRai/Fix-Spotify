@@ -200,7 +200,7 @@ export function SettingsTab({ onClose }) {
               writeAppSettings({ ...DEFAULT_SETTINGS });
               toast('Settings reset to defaults');
             }}
-            className="tap flex w-full items-center gap-3 rounded-2xl border border-spotify-essential-negative/30 bg-spotify-essential-negative/[0.08] px-4 py-3.5 text-left active:bg-spotify-essential-negative/[0.16]"
+            className="tap flex w-full items-center gap-3 rounded-2xl bg-spotify-elevated-base px-4 py-3.5 text-left active:bg-spotify-elevated-highlight"
           >
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-spotify-essential-negative/15 text-spotify-essential-negative">
               <RotateCcw size={18} />

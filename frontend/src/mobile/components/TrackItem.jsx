@@ -101,7 +101,15 @@ function TrackItemBase({
         {showArtwork && (
           <div className="relative w-12 h-12 shrink-0 rounded overflow-hidden bg-spotify-elevated-base">
             {artwork ? (
-              <img src={artwork} alt="" loading="lazy" className="w-full h-full object-cover" />
+              // Offline (or a dead CDN link) must not show the broken-image
+              // glyph — hide the img and let the dark placeholder show instead.
+              <img
+                src={artwork}
+                alt=""
+                loading="lazy"
+                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                className="w-full h-full object-cover"
+              />
             ) : null}
 
             {active && isPlaying && (
@@ -159,7 +167,13 @@ export function CardItem({ image, title, subtitle, round = false, onClick, width
         }`}
       >
         {image ? (
-          <img src={image} alt="" loading="lazy" className="w-full h-full object-cover" />
+          <img
+            src={image}
+            alt=""
+            loading="lazy"
+            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+            className="w-full h-full object-cover"
+          />
         ) : null}
       </div>
       <p className={`text-[13px] text-white truncate ${round ? 'text-center' : ''}`}>{title}</p>

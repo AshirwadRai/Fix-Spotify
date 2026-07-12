@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { ChevronLeft, Play, Pause, Heart, Download, Shuffle } from 'lucide-react';
+import { ChevronLeft, Play, Pause, Heart, ArrowDownCircle, Shuffle } from 'lucide-react';
 import { api } from '../../api';
 import { usePlayer } from '../../store/PlayerContext';
 import { useDownloads } from '../../store/DownloadsContext';
@@ -21,7 +21,7 @@ export function CollectionSheet({ target, onClose, onMenu, onOpenArtist, onOpenA
   const [loading, setLoading] = useState(true);
   const [saved, setSaved] = useState(false);
 
-  const { currentTrack, isPlaying, playCollection, shuffle, togglePlay } = usePlayer();
+  const { currentTrack, isPlaying, playCollection, shuffle, toggleShuffle, togglePlay } = usePlayer();
   const playFrom = usePlayFrom();
   const { downloadMany } = useDownloads();
 
@@ -213,7 +213,7 @@ export function CollectionSheet({ target, onClose, onMenu, onOpenArtist, onOpenA
             className="tap p-1"
             disabled={tracks.length === 0}
           >
-            <Download size={24} className="text-white/70" />
+            <ArrowDownCircle size={24} className="text-white/70" />
           </button>
         )}
 
@@ -222,7 +222,9 @@ export function CollectionSheet({ target, onClose, onMenu, onOpenArtist, onOpenA
         <button
           type="button"
           aria-label="Shuffle play"
-          onClick={() => playCollection(tracks, true)}
+          // Already listening to this collection → toggle shuffle on the
+          // upcoming queue only; never restart the current song.
+          onClick={() => (playingThis ? toggleShuffle() : playCollection(tracks, true))}
           className={`tap p-1 transition-colors duration-fast ${
             playingThis && shuffle ? 'text-spotify-essential-bright-accent' : 'text-white/70'
           }`}

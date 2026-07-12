@@ -32,10 +32,12 @@ export function Toaster() {
   if (!current) return null;
 
   return (
-    <div className="fixed bottom-28 inset-x-3 z-[9999] pointer-events-none">
+    <div className="fixed bottom-28 inset-x-4 z-[9999] pointer-events-none">
+      {/* Spotify's own toast recipe: a white bar with black text. On an
+          otherwise-dark UI it reads instantly without needing an icon. */}
       <div
         key={current.id}
-        className="flex items-center rounded-2xl border border-white/10 bg-[#2e2e2e]/95 px-4 py-3 text-[13px] font-medium text-white shadow-xl backdrop-blur-md"
+        className="flex items-center justify-center rounded-lg bg-[#f6f6f6] px-4 py-3 text-[13px] font-semibold text-black shadow-[0_8px_24px_rgba(0,0,0,0.5)]"
         style={{ animation: 'toastIn 220ms cubic-bezier(0.22,0.61,0.36,1)' }}
       >
         {current.message}

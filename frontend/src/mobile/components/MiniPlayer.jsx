@@ -50,8 +50,15 @@ export function MiniPlayer({ onExpand }) {
   const rgb = useDominantColor(getBestArtworkUrl(currentTrack));
   const audioOutput = useAudioOutput(!!currentTrack);
   const [liked, setLiked] = useState(false);
-  // Re-read when the track changes (isLiked reads localStorage, not reactive).
-  useEffect(() => { setLiked(currentTrack ? isLiked(currentTrack) : false); }, [currentTrack]);
+  // Follow the SHARED liked store: re-read on track change AND whenever a like
+  // is toggled anywhere (expanded player, track rows) so the hearts never
+  // disagree between views.
+  useEffect(() => {
+    const sync = () => setLiked(currentTrack ? isLiked(currentTrack) : false);
+    sync();
+    window.addEventListener('likedchange', sync);
+    return () => window.removeEventListener('likedchange', sync);
+  }, [currentTrack]);
 
   // While dragging we show the FINGER's position, not the audio's — the audio
   // keeps playing the old position until release, and a bar that snapped back
@@ -134,7 +141,7 @@ export function MiniPlayer({ onExpand }) {
         <button
           type="button"
           aria-label={liked ? 'Remove from Liked Songs' : 'Add to Liked Songs'}
-          onClick={(e) => { e.stopPropagation(); toggleLiked(currentTrack); setLiked((v) => !v); }}
+          onClick={(e) => { e.stopPropagation(); toggleLiked(currentTrack); }}
           className="tap p-2 transition-transform duration-fast active:scale-90"
         >
           <Heart

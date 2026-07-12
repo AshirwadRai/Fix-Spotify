@@ -1349,8 +1349,8 @@ def youtube_experimental_toggle():
         import webview_jcp
         if not webview_jcp.is_supported():
             return jsonify({"enabled": False, "ok": False,
-                            "error": "This device's WebView can't run the JS engine "
-                                     "needed for YouTube."}), 200
+                            "error": "The built-in JS engine could not start on "
+                                     "this device."}), 200
         passed = webview_jcp.self_test()
     except Exception as e:
         return jsonify({"enabled": False, "ok": False, "error": str(e)}), 200
