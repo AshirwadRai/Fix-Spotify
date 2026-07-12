@@ -118,5 +118,9 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
+          # Name it the same as the desktop job does. Whichever job gets there
+          # first creates the release, and without this the Android job named it
+          # after the bare tag ("v1.2.0") instead of "Fix_Spotify v1.2.0".
+          name: "Fix_Spotify ${{ github.ref_name }}"
           files: ${{ steps.stage.outputs.apk }}
           fail_on_unmatched_files: true
