@@ -27,7 +27,7 @@ object Updater {
 
     private const val TAG = "FixSpotifyUpd"
     private const val RELEASES_API =
-        "https://api.github.com/repos/XMrNooBX/Fix-Spotify/releases/latest"
+        "https://api.github.com/repos/AshirwadRai/Fix-Spotify/releases/latest"
 
     data class Release(val version: String, val apkUrl: String, val notes: String)
 
