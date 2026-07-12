@@ -415,7 +415,10 @@ function UpdateSection() {
     <Section title="Updates">
       <div className="flex items-start gap-3 py-1">
         <RefreshCw size={18} className="text-spotify-text-subdued shrink-0 mt-0.5" />
-        <div className="min-w-0 flex-1">
+        {/* Fixed min-height so the section doesn't grow/shrink as the status
+            text changes between states — that reflow is what made the screen
+            appear to "jump" when Check again was tapped. */}
+        <div className="min-w-0 flex-1 min-h-[48px]">
           <p className="text-[14px]">
             {state === 'found'
               ? `Version ${info.version} is available`
