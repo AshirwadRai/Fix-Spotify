@@ -41,6 +41,25 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "Resolved version: $TAG"
 
+      # Bake the tag's version into tauri.conf.json so the BUILT .exe reports the
+      # same version the release advertises. Without this the app is compiled with
+      # whatever static version is in the file, so it can report an older version
+      # than latest.json forever — the endless "update available" loop. latest.json
+      # already derives its version from the tag, so after this both agree.
+      - name: Set app version from tag
+        shell: pwsh
+        run: |
+          $tag = "${{ steps.version.outputs.tag }}".TrimStart('v')
+          if ($tag -match '^\d+\.\d+\.\d+') {
+            $conf = "frontend/src-tauri/tauri.conf.json"
+            $json = Get-Content $conf -Raw | ConvertFrom-Json
+            $json.version = $tag
+            $json | ConvertTo-Json -Depth 30 | Out-File -Encoding utf8 $conf
+            Write-Host "tauri.conf.json version set to $tag"
+          } else {
+            Write-Host "Non-semver tag '$tag' — keeping tauri.conf.json version"
+          }
+
       # ─── Python backend (PyInstaller sidecar) ───────────────────────
       - name: Setup Python
         uses: actions/setup-python@v5

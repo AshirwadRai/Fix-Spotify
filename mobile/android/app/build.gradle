@@ -9,6 +9,28 @@ def repoRoot = file("$rootDir/../..")
 def pythonSrc = file("src/main/python")
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Version — DERIVED FROM THE RELEASE TAG, never hand-edited.
+// ─────────────────────────────────────────────────────────────────────────────
+// CI passes -PappVersionName=<tag without 'v'> (see build-android.yml). The
+// versionName the APK reports is THAT value, so the tag and the installed
+// version can never disagree — which is exactly the bug that caused an endless
+// "update to 1.2.2" loop (the tag said 1.2.2 but build.gradle still said 1.2.1).
+//
+// versionCode is computed from the name as major*10000 + minor*100 + patch, so
+// it always increases with the version (1.2.1 -> 10201, 1.2.2 -> 10202). Android
+// requires a strictly higher versionCode to install an update in place.
+//
+// The fallback is only for LOCAL builds (no -P passed); releases always override.
+def appVersionName = (project.findProperty('appVersionName') ?: '1.2.1').toString().trim()
+def appVersionCode = {
+    def m = (appVersionName =~ /(\d+)\.(\d+)\.(\d+)/)
+    if (m.find()) {
+        return m.group(1).toInteger() * 10000 + m.group(2).toInteger() * 100 + m.group(3).toInteger()
+    }
+    return 1   // unparseable name (local dev) — a harmless floor
+}()
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Release signing
 // ─────────────────────────────────────────────────────────────────────────────
 // Android identifies an app by (applicationId + SIGNING KEY). Install an APK
@@ -50,8 +72,8 @@ android {
         // service relies on to survive being backgrounded during playback.
         minSdk 26
         targetSdk 34
-        versionCode 4
-        versionName "1.2.1"
+        versionCode appVersionCode
+        versionName appVersionName
 
         ndk {
             // Chaquopy ships a native CPython per ABI, and each one adds ~10 MB

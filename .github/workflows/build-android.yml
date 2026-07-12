@@ -90,9 +90,21 @@ jobs:
 
       # ANDROID_HOME is preinstalled on ubuntu-latest, so Gradle finds the SDK
       # with no local.properties needed.
+      #
+      # The APK's versionName is DERIVED FROM THE TAG (v1.2.2 -> 1.2.2), passed
+      # to Gradle as -PappVersionName. This is what stops the tag and the built
+      # version from ever disagreeing (the cause of the endless-update loop).
+      # On workflow_dispatch (ref is a branch, not a v* tag) we skip the override
+      # and let build.gradle's local fallback apply.
       - name: Build release APK
         working-directory: mobile/android
-        run: ./gradlew assembleRelease --no-daemon --stacktrace
+        run: |
+          VERSION_ARG=""
+          case "$GITHUB_REF_NAME" in
+            v*) VERSION_ARG="-PappVersionName=${GITHUB_REF_NAME#v}" ;;
+          esac
+          echo "Building with ${VERSION_ARG:-(local fallback version)}"
+          ./gradlew assembleRelease --no-daemon --stacktrace $VERSION_ARG
 
       - name: Stage APK
         id: stage
