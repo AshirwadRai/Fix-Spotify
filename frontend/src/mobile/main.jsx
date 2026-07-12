@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import MobileApp from './MobileApp';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { initApiBase, setApiToken } from '../utils/config';
 import { getApiToken } from './androidBridge';
 import './mobile.css';
@@ -22,7 +23,9 @@ setApiToken(getApiToken());
 initApiBase().finally(() => {
   createRoot(document.getElementById('root')).render(
     <StrictMode>
-      <MobileApp />
+      <ErrorBoundary>
+        <MobileApp />
+      </ErrorBoundary>
     </StrictMode>
   );
 });

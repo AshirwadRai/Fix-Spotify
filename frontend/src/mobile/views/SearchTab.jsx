@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { Search, X, Clock, TrendingUp } from 'lucide-react';
 import { api } from '../../api';
 import { TrackItem, CardItem } from '../components/TrackItem';
-import { normalizeTracks, applyEnrichment } from '../../utils/tracks';
+import { normalizeTracks, applyEnrichment, cleanText } from '../../utils/tracks';
 import { useRecentSearches, addRecentSearch, removeRecentSearch } from '../../utils/searchHistory';
 import { usePlayer } from '../../store/PlayerContext';
 import { usePlayFrom } from '../usePlayFrom';
@@ -155,19 +155,26 @@ export function SearchTab({ onMenu, onOpenArtist, onOpenAlbum, onImportSpotify }
         {/* Autocomplete. Tapping a suggestion runs it immediately. */}
         {showSuggestions && (
           <div className="px-2 pb-2">
-            {suggestions.map((s) => (
-              <button
-                key={s}
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => { setQuery(s); runSearch(s); }}
-                className="tap w-full flex items-center gap-3 px-3 py-2.5 rounded text-left transition-colors duration-fast active:bg-white/10"
-              >
-                <TrendingUp size={16} className="text-spotify-text-subdued shrink-0" />
-                <span className="flex-1 text-[14px] truncate">{s}</span>
-                <Search size={14} className="text-spotify-text-subdued shrink-0" />
-              </button>
-            ))}
+            {suggestions.map((s, i) => {
+              // The endpoint returns objects, not strings.
+              const term = `${cleanText(s.title)} ${cleanText(s.artist)}`.trim();
+              return (
+                <button
+                  key={`${s.title}-${s.artist}-${i}`}
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => { setQuery(term); runSearch(term); }}
+                  className="tap w-full flex items-center gap-3 px-3 py-2.5 rounded text-left transition-colors duration-fast active:bg-white/10"
+                >
+                  <TrendingUp size={16} className="text-spotify-text-subdued shrink-0" />
+                  <span className="flex-1 min-w-0 truncate text-[14px]">
+                    {cleanText(s.title)}
+                    <span className="text-spotify-text-subdued"> · {cleanText(s.artist)}</span>
+                  </span>
+                  <Search size={14} className="text-spotify-text-subdued shrink-0" />
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
