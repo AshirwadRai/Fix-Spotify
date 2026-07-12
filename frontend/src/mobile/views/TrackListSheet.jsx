@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from 'react';
-import { ChevronLeft, Play, Pause, Shuffle, Heart, Music2, Trash2, Pencil, WifiOff, Camera } from 'lucide-react';
+import { ChevronLeft, Play, Pause, Shuffle, Heart, Music2, Trash2, Pencil, WifiOff, Camera, Download } from 'lucide-react';
 import { usePlayer } from '../../store/PlayerContext';
+import { useDownloads } from '../../store/DownloadsContext';
 import { TrackItem } from '../components/TrackItem';
 import { PlaylistCover } from '../../components/PlaylistCover';
 import { usePlayFrom } from '../usePlayFrom';
@@ -48,6 +49,7 @@ function fileToCoverDataUrl(file) {
 
 export function TrackListSheet({ view, onClose, onMenu }) {
   const { currentTrack, isPlaying, playCollection, shuffle, togglePlay } = usePlayer();
+  const { downloadMany } = useDownloads();
   const playFrom = usePlayFrom();
   const [renaming, setRenaming] = useState(false);
   const [name, setName] = useState(view?.title || '');
@@ -229,7 +231,19 @@ export function TrackListSheet({ view, onClose, onMenu }) {
         </div>
 
         {/* Actions */}
-        <div className="flex items-center justify-end gap-4 px-4 pb-3 bg-spotify-base">
+        <div className="flex items-center gap-4 px-4 pb-3 bg-spotify-base">
+          {/* Download the whole list — same affordance albums have. Covers every
+              playlist, including one imported from a Spotify link. */}
+          <button
+            type="button"
+            aria-label="Download all"
+            onClick={() => downloadMany(tracks)}
+            disabled={tracks.length === 0}
+            className="tap p-1 text-white/70 transition-colors duration-fast disabled:opacity-40"
+          >
+            <Download size={22} />
+          </button>
+          <div className="flex-1" />
           <button
             type="button"
             aria-label="Shuffle play"

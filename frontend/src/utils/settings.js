@@ -9,7 +9,7 @@ export const DEFAULT_SETTINGS = {
   audioQuality: 0,        // 0 = auto, else target kbps (96/128/256/320)
   crossfadeDuration: 0,   // seconds
   normalizeVolume: false,
-  showSourceBadge: true,
+  showSourceBadge: false,   // off by default — don't reveal the source unless asked
   autoplay: true,         // play similar songs when the queue runs out (radio)
 };
 

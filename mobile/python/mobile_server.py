@@ -1236,6 +1236,30 @@ def _spotify_tracklist(kind: str, sid: str):
     return {"name": _norm_ws(name), "tracks": tracks, "image": cover}
 
 
+def _title_artist_ok(item: Dict[str, str], track) -> bool:
+    """Reject a match that is merely the NEAREST hit rather than the right song.
+
+    Spotify import used to keep the first result unconditionally, so a cover or a
+    same-titled different song slipped in. Require the title to genuinely match
+    AND at least one Spotify artist to appear in the candidate's credit — the two
+    things a wrong song fails.
+    """
+    from components.fuzz_compat import fuzz
+
+    def norm(s):
+        return re.sub(r"[^\w\s]", " ", (s or "").lower()).strip()
+
+    if fuzz.token_set_ratio(norm(item["title"]), norm(getattr(track, "title", ""))) < 82:
+        return False
+    cand_artist = norm(getattr(track, "artist", ""))
+    # Any one credited Spotify artist present in the candidate's artist string.
+    for a in re.split(r"[,&/]| x |feat| ft ", norm(item["artist"])):
+        a = a.strip()
+        if a and (a in cand_artist or fuzz.partial_ratio(a, cand_artist) >= 88):
+            return True
+    return False
+
+
 def _match_track(item: Dict[str, str]) -> Optional[Dict[str, Any]]:
     """Find a PLAYABLE version of one Spotify track on our own sources."""
     if _search_service is None:
@@ -1244,8 +1268,8 @@ def _match_track(item: Dict[str, str]) -> Optional[Dict[str, Any]]:
     try:
         cfg = replace(
             _search_service.config,
-            max_total_results=1,
-            max_results_per_source=3,
+            max_total_results=5,           # look past a wrong #1 to a right #2
+            max_results_per_source=5,
             enabled_sources=PLAYABLE_SEARCH_SOURCES,
             timeout_seconds=10.0,
         )
@@ -1253,6 +1277,8 @@ def _match_track(item: Dict[str, str]) -> Optional[Dict[str, Any]]:
             source = _playable_source_name(track)
             if not source:
                 continue
+            if not _title_artist_ok(item, track):
+                continue               # nearest hit but not the right song — skip
             return {
                 "title": _clean_text(track.title) or item["title"],
                 "artist": _clean_text(track.artist) or item["artist"],

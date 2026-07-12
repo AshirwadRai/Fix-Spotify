@@ -148,11 +148,8 @@ dependencies {
     // MediaSessionCompat -> the lock-screen / notification transport controls
     // that navigator.mediaSession in the WebView drives.
     implementation 'androidx.media:media:1.7.0'
-    // EXPERIMENTAL YouTube: a headless V8 from the system WebView, used to solve
-    // YouTube's JS signature challenge (see JsEngine.kt / webview_jcp.py). Only
-    // touched when the user turns the experimental toggle on; adds no startup
-    // cost otherwise.
-    implementation 'androidx.javascriptengine:javascriptengine:1.0.0'
+    // EXPERIMENTAL YouTube runs its JS solver in a plain hidden WebView
+    // (JsEngine.kt) — no extra dependency needed; the WebView is already here.
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

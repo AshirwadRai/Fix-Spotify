@@ -1,108 +1,122 @@
 package com.xmrnoobx.fixspotify
 
+import android.annotation.SuppressLint
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
-import androidx.javascriptengine.JavaScriptSandbox
-import androidx.javascriptengine.JavaScriptIsolate
-import androidx.javascriptengine.IsolateStartupParameters
+import android.webkit.WebView
+import org.json.JSONArray
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 /**
- * A headless JavaScript runtime, backed by the system WebView's V8 through
- * androidx.javascriptengine.
+ * A headless JavaScript runtime, backed by the WebView the app already ships.
  *
- * Why this exists: YouTube hides its stream URLs behind an obfuscated JavaScript
- * "signature" challenge. yt-dlp solves it by running a solver script in a real
- * JS engine — Deno on the desktop build. Android has no Deno, which is the ONLY
- * reason YouTube didn't work on the phone. The system WebView, however, ships a
- * full V8, and this class exposes it as a plain "run this script, give me what
- * it printed" service that a yt-dlp provider (see webview_jcp.py) drives over the
- * Chaquopy bridge.
+ * YouTube gates its stream URLs behind an obfuscated JS "signature" challenge.
+ * yt-dlp solves it by running a solver script in a real JS engine — Deno on the
+ * desktop build. Android has no Deno, which is the only reason YouTube didn't
+ * work on the phone. But Android has a WebView (a full browser engine) on every
+ * device, and WebView.evaluateJavascript runs arbitrary JS. So we point a
+ * hidden, never-attached WebView at about:blank and evaluate the solver in it.
  *
- * Everything here is best-effort and fully isolated from app startup:
- *   • the sandbox is created lazily, on the first YouTube attempt, never at boot
- *   • isSupported() is checked before use — many older WebViews lack the feature
- *   • every failure returns an error string, never throws into Python
- * So if this doesn't work on a given device, YouTube simply stays unavailable —
- * exactly the state the app was already in — and nothing else is affected.
+ * This deliberately does NOT use androidx.javascriptengine: that needs a recent
+ * WebView feature many devices lack (the user hit exactly that — "not supported
+ * on this device's system WebView"). A plain WebView works everywhere.
+ *
+ * evaluate() is called from Chaquopy's background request thread but WebView is
+ * main-thread-only, so it hops to the main thread and blocks the caller on a
+ * latch until the result comes back.
  */
 object JsEngine {
 
     private const val TAG = "FixSpotifyJs"
 
-    // A single sandbox process is reused across calls; V8 startup is the
-    // expensive part and the solver is invoked repeatedly during a session.
-    @Volatile private var sandbox: JavaScriptSandbox? = null
-    private val lock = Any()
+    private val main = Handler(Looper.getMainLooper())
+    @Volatile private var webView: WebView? = null
 
-    /** True when this device's WebView can host a JS sandbox at all. */
+    /** Plain WebView is available on every Android device with a WebView. */
+    @JvmStatic
     fun isSupported(context: Context): Boolean = try {
-        JavaScriptSandbox.isSupported()
+        WebView.getCurrentWebViewPackage() != null
     } catch (e: Throwable) {
-        Log.w(TAG, "javascriptengine not supported", e)
-        false
+        // Older APIs lack getCurrentWebViewPackage but still have WebView.
+        true
     }
 
-    private fun ensureSandbox(context: Context): JavaScriptSandbox? {
-        sandbox?.let { return it }
-        synchronized(lock) {
-            sandbox?.let { return it }
-            return try {
-                if (!JavaScriptSandbox.isSupported()) return null
-                // Block once, here, to create the process. Callers are already on
-                // a background thread (Chaquopy's request thread).
-                val sb = JavaScriptSandbox
-                    .createConnectedInstanceAsync(context.applicationContext)
-                    .get(30, TimeUnit.SECONDS)
-                sandbox = sb
-                sb
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun ensureWebView(context: Context) {
+        if (webView != null) return
+        val latch = CountDownLatch(1)
+        main.post {
+            try {
+                val wv = WebView(context.applicationContext)
+                wv.settings.javaScriptEnabled = true
+                wv.settings.domStorageEnabled = true
+                wv.loadUrl("about:blank")
+                webView = wv
             } catch (e: Throwable) {
-                Log.e(TAG, "failed to start JS sandbox", e)
-                null
+                Log.e(TAG, "failed to create JS WebView", e)
+            } finally {
+                latch.countDown()
             }
         }
+        latch.await(10, TimeUnit.SECONDS)
     }
 
     /**
      * Evaluate [script] and return the string value of its final expression.
      *
-     * The caller (webview_jcp.py) wraps the yt-dlp solver so its last expression
-     * is the captured console output, so that value IS the stdout yt-dlp wants.
-     *
-     * Returns a string beginning with "__JSERR__" on any failure, which the
-     * Python side treats as "runtime unavailable" and moves on — YouTube just
-     * won't play, nothing crashes.
+     * webview_jcp wraps the solver so its last expression is the captured
+     * console output, so that value IS the stdout yt-dlp wants. Returns a string
+     * starting with "__JSERR__" on any failure — the Python side treats that as
+     * "runtime unavailable" and YouTube just stays off, never a crash.
      */
     @JvmStatic
     fun evaluate(context: Context, script: String): String {
-        val sb = ensureSandbox(context)
-            ?: return "__JSERR__ sandbox unavailable"
         return try {
-            // A fresh isolate per evaluation: the solver mutates globals, and a
-            // clean slate avoids state leaking between challenges. Give it enough
-            // heap for the (fairly large) solver bundle.
-            val params = IsolateStartupParameters().apply {
-                setMaxHeapSizeBytes(128L * 1024 * 1024)
+            ensureWebView(context)
+            val wv = webView ?: return "__JSERR__ webview unavailable"
+
+            val result = arrayOfNulls<String>(1)
+            val latch = CountDownLatch(1)
+            main.post {
+                try {
+                    // evaluateJavascript hands back the last expression JSON-
+                    // encoded (a quoted string). Unwrap it below.
+                    wv.evaluateJavascript(script) { value ->
+                        result[0] = value
+                        latch.countDown()
+                    }
+                } catch (e: Throwable) {
+                    result[0] = "__JSERR__ ${e.message}"
+                    latch.countDown()
+                }
             }
-            sb.createIsolate(params).use { isolate ->
-                isolate.evaluateJavaScriptAsync(script).get(30, TimeUnit.SECONDS) ?: ""
-            }
+            if (!latch.await(60, TimeUnit.SECONDS)) return "__JSERR__ timeout"
+
+            val raw = result[0] ?: return "__JSERR__ null"
+            // A thrown JS error or non-string comes back as "null".
+            if (raw == "null") "__JSERR__ script returned null" else unwrapJson(raw)
         } catch (e: Throwable) {
             Log.e(TAG, "JS evaluate failed", e)
             "__JSERR__ ${e.message ?: e.javaClass.simpleName}"
         }
     }
 
-    /** Release the sandbox process. Safe to call even if never started. */
+    // evaluateJavascript returns a JSON literal. For our string results that's a
+    // quoted, escaped string; decode it with JSONArray so \n, \" etc. survive.
+    private fun unwrapJson(raw: String): String = try {
+        JSONArray("[$raw]").getString(0)
+    } catch (e: Throwable) {
+        raw
+    }
+
     @JvmStatic
     fun shutdown() {
-        synchronized(lock) {
-            try {
-                sandbox?.close()
-            } catch (e: Throwable) {
-                Log.w(TAG, "sandbox close failed", e)
-            }
-            sandbox = null
+        main.post {
+            try { webView?.destroy() } catch (e: Throwable) { /* ignore */ }
+            webView = null
         }
     }
 }
