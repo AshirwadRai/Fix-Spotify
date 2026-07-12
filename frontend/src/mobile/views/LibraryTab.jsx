@@ -71,12 +71,12 @@ export function LibraryTab({ onOpenList, onOpenCollection }) {
               onChange={(e) => setName(e.target.value)}
               placeholder="Playlist name"
               enterKeyHint="done"
-              className="flex-1 h-11 px-4 rounded bg-white/10 text-white text-[15px] placeholder:text-white/40 outline-none"
+              className="flex-1 min-w-0 h-11 px-4 rounded bg-white/10 text-white text-[15px] placeholder:text-white/40 outline-none"
             />
             <button
               type="submit"
               disabled={!name.trim()}
-              className="px-5 rounded-full bg-spotify-essential-bright-accent text-black text-[14px] font-semibold disabled:opacity-40"
+              className="shrink-0 px-5 h-11 rounded-full bg-spotify-essential-bright-accent text-black text-[14px] font-semibold disabled:opacity-40"
             >
               Create
             </button>

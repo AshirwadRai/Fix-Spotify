@@ -138,6 +138,8 @@ export function TrackListSheet({ view, onClose, onMenu }) {
                 type="button"
                 aria-label="Delete playlist"
                 onClick={() => {
+                  // Deleting a playlist is unrecoverable — confirm first.
+                  if (!window.confirm(`Delete “${view.title}”? This can't be undone.`)) return;
                   deletePlaylist(view.id);
                   toast(`Deleted “${view.title}”`);
                   onClose();

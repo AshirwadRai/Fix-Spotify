@@ -5,8 +5,12 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.media.AudioManager
+import androidx.core.content.ContextCompat
 import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -104,11 +108,29 @@ class BackendService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    // Android fires this when audio is about to start blasting out of the phone
+    // speaker because the headset went away (unplugged, or Bluetooth
+    // disconnected). Pausing is the expected behaviour — and the only reliable
+    // signal for it; there is no "buds disconnected" callback to poll for.
+    private val becomingNoisy = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
+                transportListener?.onCommand("pause")
+            }
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         instance = this
         createNotificationChannel()
         setupMediaSession()
+        ContextCompat.registerReceiver(
+            this,
+            becomingNoisy,
+            IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
 
         // Post the notification immediately: Android gives us ~5 seconds from
         // startForegroundService() to call startForeground(), and booting Python
@@ -157,6 +179,7 @@ class BackendService : Service() {
             Log.w(TAG, "stop_server failed", e)
         }
         mediaSession.release()
+        try { unregisterReceiver(becomingNoisy) } catch (e: Exception) { /* never registered */ }
         instance = null
         serverReady.set(false)
         super.onDestroy()

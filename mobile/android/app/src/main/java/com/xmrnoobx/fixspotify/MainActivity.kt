@@ -366,16 +366,30 @@ class MainActivity : AppCompatActivity() {
      */
     private fun currentAudioOutput(): String = try {
         val am = getSystemService(AUDIO_SERVICE) as AudioManager
-        val routed = am.getDevices(AudioManager.GET_DEVICES_OUTPUTS).firstOrNull { d ->
-            d.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
-                d.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
-                d.type == AudioDeviceInfo.TYPE_USB_HEADSET ||
-                d.type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
-                d.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
-                (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-                    d.type == AudioDeviceInfo.TYPE_BLE_HEADSET)
+        val outs = am.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+
+        // Rank matters. SCO is the PHONE's own call endpoint and reports the
+        // handset's model as its productName ("2201116YU"), which is why the
+        // wrong name showed up. Real headsets (A2DP / BLE / wired) come first.
+        fun rank(t: Int) = when (t) {
+            AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> 0
+            AudioDeviceInfo.TYPE_USB_HEADSET -> 2
+            AudioDeviceInfo.TYPE_WIRED_HEADSET, AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> 3
+            AudioDeviceInfo.TYPE_BLUETOOTH_SCO -> 4
+            else -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                t == AudioDeviceInfo.TYPE_BLE_HEADSET) 1 else 99
         }
-        routed?.productName?.toString()?.trim().orEmpty()
+
+        val routed = outs.filter { rank(it.type) < 99 }.minByOrNull { rank(it.type) }
+        val name = routed?.productName?.toString()?.trim().orEmpty()
+
+        // Some OEMs report the handset's own model as the productName. That is
+        // never the headphone's name, so drop it rather than show a lie.
+        if (name.isEmpty() || name.equals(Build.MODEL, true) || name.equals(Build.PRODUCT, true)) {
+            if (routed == null) "" else "Bluetooth"
+        } else {
+            name
+        }
     } catch (e: Exception) {
         ""
     }
