@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
-import { Heart, Download, ListPlus, FolderPlus, User, Disc3, Share2, Check } from 'lucide-react';
+import { Heart, Download, ListPlus, FolderPlus, User, Disc3, Share2, Check, Trash2 } from 'lucide-react';
 import { usePlayer } from '../../store/PlayerContext';
 import { useDownloads } from '../../store/DownloadsContext';
 import { getBestArtworkUrl, cleanText, shareTrack } from '../../utils/tracks';
 import { isLiked, toggleLiked } from '../../utils/likes';
-import { isDownloaded } from '../../utils/downloads';
+import { isDownloaded, deleteDownload } from '../../utils/downloads';
+import { api } from '../../api';
+import { toast } from '../../utils/toast';
 
 /**
  * The bottom sheet that replaces the desktop right-click ContextMenu.
@@ -35,11 +37,22 @@ export function TrackActionSheet({ track, onClose, onOpenArtist, onOpenAlbum, on
       onClick: () => { toggleLiked(track); setLiked((v) => !v); },
       close: false,
     },
-    {
-      icon: downloaded ? Check : Download,
-      label: downloaded ? 'Downloaded' : 'Download',
-      onClick: () => { if (!downloaded) startDownload(track); },
-    },
+    downloaded
+      ? {
+          // Once downloaded, the row becomes a real action: delete the file from
+          // disk AND clear it from the offline library.
+          icon: Trash2,
+          label: 'Remove download',
+          onClick: async () => {
+            const ok = await deleteDownload(track, api);
+            toast(ok ? 'Removed from downloads' : 'Removed (file was already gone)');
+          },
+        }
+      : {
+          icon: Download,
+          label: 'Download',
+          onClick: () => startDownload(track),
+        },
     { icon: ListPlus, label: 'Add to queue', onClick: () => addToQueue(track) },
     { icon: FolderPlus, label: 'Add to playlist', onClick: () => onAddToPlaylist(track) },
     { icon: User, label: 'Go to artist', onClick: () => onOpenArtist(track.artist) },

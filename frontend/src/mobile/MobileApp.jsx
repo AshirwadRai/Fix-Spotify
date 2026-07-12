@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { WifiOff } from 'lucide-react';
+import { WifiOff, Wifi } from 'lucide-react';
 import { PlayerProvider, usePlayer } from '../store/PlayerContext';
 import { DownloadsProvider } from '../store/DownloadsContext';
 import { Toaster } from '../components/Toaster';
@@ -33,6 +33,7 @@ function Shell() {
   const [collection, setCollection] = useState(null);         // remote album/artist/playlist
   const [list, setList] = useState(null);                     // local liked/playlist/offline
   const [online, setOnline] = useState(navigator.onLine);
+  const [justReconnected, setJustReconnected] = useState(false);
 
   const {
     currentTrack, isPlaying, progress, duration,
@@ -67,12 +68,35 @@ function Shell() {
   );
 
   // ── Connectivity ────────────────────────────────────────────────────────
+  // navigator.onLine only tells us the interface is up, not that the internet is
+  // truly reachable — so on an 'online' event we PROBE the backend's
+  // connectivity check before declaring success. On a confirmed reconnect we
+  // flash a green "back online" banner and broadcast 'app:reconnected', which
+  // the data views (Home, etc.) listen for to auto-refetch — so a screen that
+  // failed while offline heals itself instead of staying stuck on an error.
   useEffect(() => {
-    const on = () => setOnline(true);
-    const off = () => setOnline(false);
+    let cancelled = false;
+    const off = () => { if (!cancelled) setOnline(false); };
+    const on = async () => {
+      let reachable = navigator.onLine;
+      try {
+        const res = await api.checkConnectivity();
+        reachable = !!(res && res.online);
+      } catch { /* fall back to navigator.onLine */ }
+      if (cancelled || !reachable) return;
+      setOnline((wasOnline) => {
+        if (!wasOnline) {
+          setJustReconnected(true);
+          setTimeout(() => setJustReconnected(false), 2500);
+          window.dispatchEvent(new Event('app:reconnected'));
+        }
+        return true;
+      });
+    };
     window.addEventListener('online', on);
     window.addEventListener('offline', off);
     return () => {
+      cancelled = true;
       window.removeEventListener('online', on);
       window.removeEventListener('offline', off);
     };
@@ -191,6 +215,13 @@ function Shell() {
         <div className="shrink-0 pt-safe bg-spotify-essential-warning text-black">
           <div className="flex items-center justify-center gap-2 py-1.5 text-xs font-medium">
             <WifiOff size={14} /> Offline — downloaded songs still play
+          </div>
+        </div>
+      )}
+      {online && justReconnected && (
+        <div className="shrink-0 pt-safe bg-spotify-essential-bright-accent text-black">
+          <div className="flex items-center justify-center gap-2 py-1.5 text-xs font-medium">
+            <Wifi size={14} /> Back online — refreshing
           </div>
         </div>
       )}

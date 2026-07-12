@@ -19,15 +19,28 @@ export function HomeTab({ onHomeItem, onOpenSettings }) {
 
   useEffect(() => {
     let cancelled = false;
-    api
-      .getHome()
-      .then((data) => {
-        if (!cancelled) setRows(data.rows || []);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => { cancelled = true; };
+    const load = () => {
+      setLoading(true);
+      api
+        .getHome()
+        .then((data) => {
+          if (!cancelled) setRows(data.rows || []);
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+    };
+    load();
+
+    // Auto-heal when the connection comes back: MobileApp fires this once it has
+    // CONFIRMED (not just navigator.onLine) that the internet is reachable, so a
+    // feed that failed while offline reloads itself with no manual retry.
+    const onReconnect = () => load();
+    window.addEventListener('app:reconnected', onReconnect);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('app:reconnected', onReconnect);
+    };
   }, []);
 
   const greeting = (() => {

@@ -173,6 +173,24 @@ class ApiClient {
     return r.json();
   }
 
+  /**
+   * Delete a downloaded file from disk (mobile). The backend refuses any path
+   * outside the download folder, so a bad `path` resolves to { ok:false }.
+   */
+  async deleteDownloadFile(path) {
+    if (!path) return { ok: false };
+    try {
+      const r = await fetch(apiUrl('/downloads/delete'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path }),
+      });
+      return r.json();
+    } catch {
+      return { ok: false };
+    }
+  }
+
   /** Scan the download folder → offline library from embedded tags. Never throws. */
   async scanLocalDownloads() {
     try {

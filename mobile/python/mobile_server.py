@@ -687,6 +687,35 @@ def scan_local_downloads():
     return jsonify({"tracks": tracks, "download_dir": directory})
 
 
+@app.post("/api/downloads/delete")
+def delete_download_file():
+    """Delete a downloaded file from disk (not just the app's registry).
+
+    Guards against path traversal: the resolved target MUST sit inside the
+    active download directory, so a caller can't ask us to delete arbitrary
+    files elsewhere on the phone.
+    """
+    raw = (_body().get("path") or "").strip()
+    if not raw:
+        return jsonify({"ok": False, "error": "no path"}), 400
+
+    directory = Path(get_default_download_dir()).resolve()
+    try:
+        target = Path(raw).resolve()
+        # target must be within the download directory (Python 3.9+: is_relative_to)
+        inside = str(target).startswith(str(directory))
+        if not inside or not target.is_file():
+            return jsonify({"ok": False, "error": "not a managed download"}), 400
+        target.unlink()
+        # Clean up an emptied album subfolder, but never the root itself.
+        parent = target.parent
+        if parent != directory and parent.is_dir() and not any(parent.iterdir()):
+            parent.rmdir()
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @app.post("/api/download/<task_id>/cancel")
 def cancel_download(task_id):
     if not _download_manager:

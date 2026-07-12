@@ -78,6 +78,31 @@ export function removeOfflineEntry(track) {
   }
 }
 
+/** The on-disk path for a downloaded track, or '' if we don't have it. */
+export function offlineFilePath(track) {
+  const map = readOfflineTracks();
+  const entry = map[getTrackId(track)];
+  return (entry && entry.filePath) || '';
+}
+
+/**
+ * Fully delete a download: remove the FILE from disk (backend) AND drop the
+ * registry entry. Returns true if the file was deleted. Registry is cleared
+ * regardless, so a missing/failed file can't leave a ghost "downloaded" state.
+ */
+export async function deleteDownload(track, api) {
+  const path = offlineFilePath(track);
+  let ok = false;
+  if (path) {
+    try {
+      const res = await api.deleteDownloadFile(path);
+      ok = !!res.ok;
+    } catch { /* fall through — still clear the registry */ }
+  }
+  removeOfflineEntry(track);
+  return ok;
+}
+
 /**
  * Merge a disk scan (backend /api/downloads/local) into the registry so the
  * offline library reflects what's actually on disk — survives a cleared
