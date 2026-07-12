@@ -86,9 +86,15 @@ from components.metadata_enricher import MetadataEnricher
 _DISABLED_SOURCES = {SourceType.YOUTUBE, SourceType.YOUTUBE_MUSIC}
 _original_get_client = UnifiedSearchService._get_client
 
+# EXPERIMENTAL: YouTube via the WebView V8 (webview_jcp). Off unless the user
+# enables it in Settings AND an on-device self-test passes. While False the
+# kill-switch below is fully active and behaviour is identical to a build that
+# never had this code — the default JioSaavn/SoundCloud path is untouched.
+_youtube_enabled = False
+
 
 def _get_client_no_youtube(self, source_type):
-    if source_type in _DISABLED_SOURCES:
+    if not _youtube_enabled and source_type in _DISABLED_SOURCES:
         return None
     return _original_get_client(self, source_type)
 
@@ -97,7 +103,8 @@ UnifiedSearchService._get_client = _get_client_no_youtube
 
 # The sources a mobile search actually queries. iTunes/MusicBrainz are
 # metadata-only (no stream URL) and would just slow the response down; clean
-# metadata still arrives progressively through /api/enrich.
+# metadata still arrives progressively through /api/enrich. YouTube is added
+# only when the experimental toggle turns it on (see /api/youtube/experimental).
 PLAYABLE_SEARCH_SOURCES = {SourceType.JIOSAAVN, SourceType.SOUNDCLOUD}
 PLAYABLE_SOURCES = {"jiosaavn", "soundcloud"}
 
@@ -1318,6 +1325,65 @@ def youtube_disconnect():
     return jsonify({"connected": False})
 
 
+# ─── EXPERIMENTAL: YouTube via the WebView V8 ─────────────────────────────────
+@app.get("/api/youtube/experimental")
+def youtube_experimental_status():
+    """Report whether the device can even host a JS engine, and whether YouTube
+    is currently enabled. Cheap — no extraction — so Settings can show it live."""
+    try:
+        import webview_jcp
+        supported = webview_jcp.is_supported()
+    except Exception:
+        supported = False
+    return jsonify({
+        "supported": supported,
+        "enabled": _youtube_enabled,
+        "saved": bool(android_env.read_settings().get("youtube_experimental")),
+    })
+
+
+@app.post("/api/youtube/experimental")
+def youtube_experimental_toggle():
+    """Turn experimental YouTube on/off.
+
+    Turning ON runs a real on-device self-test (extract a known video). Only if
+    that SUCCEEDS do we flip the source on — so the UI can honestly say whether
+    it works on THIS phone rather than promising something that silently fails.
+    """
+    global _youtube_enabled
+    want = bool(_body().get("enabled"))
+
+    settings = android_env.read_settings()
+
+    if not want:
+        _youtube_enabled = False
+        PLAYABLE_SEARCH_SOURCES.discard(SourceType.YOUTUBE)
+        settings["youtube_experimental"] = False
+        android_env.write_settings(settings)
+        return jsonify({"enabled": False, "ok": True})
+
+    try:
+        import webview_jcp
+        if not webview_jcp.is_supported():
+            return jsonify({"enabled": False, "ok": False,
+                            "error": "This device's WebView can't run the JS engine "
+                                     "needed for YouTube."}), 200
+        passed = webview_jcp.self_test()
+    except Exception as e:
+        return jsonify({"enabled": False, "ok": False, "error": str(e)}), 200
+
+    if not passed:
+        return jsonify({"enabled": False, "ok": False,
+                        "error": "Couldn't solve a YouTube challenge on this device. "
+                                 "Leaving YouTube off."}), 200
+
+    _youtube_enabled = True
+    PLAYABLE_SEARCH_SOURCES.add(SourceType.YOUTUBE)
+    settings["youtube_experimental"] = True
+    android_env.write_settings(settings)
+    return jsonify({"enabled": True, "ok": True})
+
+
 # ─── SPA ──────────────────────────────────────────────────────────────────────
 # Serving the React bundle from the SAME origin as the API is what lets
 # frontend/src/utils/config.js keep its relative base: fetch('/api/...') and
@@ -1357,6 +1423,21 @@ def _warm_up():
         _search_service.search("hello", cfg)
     except Exception:
         pass
+
+    # Restore experimental YouTube if the user had it on. We trust the previous
+    # on-device self-test rather than re-running it at every boot (it's slow),
+    # and register the provider here. Fully guarded: if the engine is gone, the
+    # source is simply added but returns nothing — never a crash.
+    global _youtube_enabled
+    try:
+        if android_env.read_settings().get("youtube_experimental"):
+            import webview_jcp
+            if webview_jcp.is_supported() and webview_jcp.install():
+                _youtube_enabled = True
+                PLAYABLE_SEARCH_SOURCES.add(SourceType.YOUTUBE)
+                print("[backend] experimental YouTube restored")
+    except Exception as e:
+        print(f"[backend] experimental YouTube restore skipped: {e}")
 
 
 def start_server(files_dir: str, downloads_dir: str, web_dir: str,

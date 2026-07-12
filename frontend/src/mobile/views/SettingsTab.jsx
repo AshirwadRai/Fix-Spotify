@@ -172,12 +172,12 @@ export function SettingsTab({ onClose }) {
                 routed through a server.
               </p>
               <p className="text-[12px] text-spotify-text-subdued mt-2 leading-snug">
-                YouTube is not available on mobile: it requires a JavaScript runtime
-                that does not exist on Android. JioSaavn streams at a higher quality
-                (320 kbps) anyway.
+                JioSaavn streams at 320 kbps. YouTube is available as an experiment
+                below.
               </p>
             </div>
           </div>
+          <YouTubeExperimentalToggle />
         </Section>
 
         <UpdateSection />
@@ -312,6 +312,74 @@ function StorageSection() {
         </div>
       </div>
     </Section>
+  );
+}
+
+/**
+ * Experimental YouTube. Off by default. Enabling runs an on-device self-test
+ * (extract a real video through the WebView's V8), and only flips on if that
+ * genuinely works — so we never promise YouTube on a device that can't do it.
+ */
+function YouTubeExperimentalToggle() {
+  const [state, setState] = useState(null);   // { supported, enabled }
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api.getYouTubeExperimental().then(setState).catch(() => setState({ supported: false, enabled: false }));
+  }, []);
+
+  if (!isAndroid() || !state) return null;
+
+  const toggle = async () => {
+    const next = !state.enabled;
+    setBusy(true);
+    if (next) toast('Testing YouTube on your device… this can take a few seconds');
+    try {
+      const res = await api.setYouTubeExperimental(next);
+      setState((s) => ({ ...s, enabled: !!res.enabled }));
+      if (next && res.ok) toast('YouTube enabled');
+      else if (next && !res.ok) toast(res.error || "Couldn't enable YouTube on this device");
+      else if (!next) toast('YouTube disabled');
+    } catch {
+      toast('Something went wrong');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-3 border-t border-white/10 pt-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[14px]">
+            YouTube <span className="text-[10px] uppercase tracking-wide text-spotify-essential-warning">Beta</span>
+          </p>
+          <p className="text-[12px] text-spotify-text-subdued mt-0.5 leading-snug">
+            {busy
+              ? 'Checking your device…'
+              : state.supported
+                ? 'Runs YouTube through your phone’s browser engine. May be slower.'
+                : 'Not supported on this device’s system WebView.'}
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={state.enabled}
+          disabled={busy || !state.supported}
+          onClick={toggle}
+          className={`relative h-6 w-11 shrink-0 rounded-full transition-colors duration-fast disabled:opacity-40 ${
+            state.enabled ? 'bg-spotify-essential-bright-accent' : 'bg-white/20'
+          }`}
+        >
+          <span
+            className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform duration-fast ${
+              state.enabled ? 'translate-x-5' : 'translate-x-0.5'
+            }`}
+          />
+        </button>
+      </div>
+    </div>
   );
 }
 

@@ -148,6 +148,31 @@ class ApiClient {
     return r.json();
   }
 
+  /** Experimental YouTube (mobile): current support/enabled state. Never throws. */
+  async getYouTubeExperimental() {
+    try {
+      const r = await fetch(apiUrl('/youtube/experimental'));
+      if (!r.ok) return { supported: false, enabled: false };
+      return await r.json();
+    } catch {
+      return { supported: false, enabled: false };
+    }
+  }
+
+  /**
+   * Turn experimental YouTube on/off. Enabling runs an on-device self-test, so
+   * this can take several seconds and may resolve { ok:false, error } if the
+   * device can't run it — a normal outcome, not an exception.
+   */
+  async setYouTubeExperimental(enabled) {
+    const r = await fetch(apiUrl('/youtube/experimental'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: !!enabled }),
+    });
+    return r.json();
+  }
+
   /** Scan the download folder → offline library from embedded tags. Never throws. */
   async scanLocalDownloads() {
     try {

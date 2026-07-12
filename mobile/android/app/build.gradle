@@ -119,9 +119,14 @@ chaquopy {
             install "mutagen==1.47.0"
 
             // yt-dlp is pure Python and is what SoundCloud extraction runs on.
-            // SoundCloud needs no JS runtime — only YouTube does — so it works
-            // here even though YouTube does not.
-            install "yt-dlp>=2024.8.6"
+            // SoundCloud needs no JS runtime; YouTube does, and gets one from the
+            // WebView V8 when the experimental toggle is on.
+            install "yt-dlp>=2026.7.4"
+
+            // The YouTube JS-challenge solver bundle. Pure JS/Python, runtime-
+            // agnostic — webview_jcp feeds it to the WebView's V8. Only used when
+            // experimental YouTube is enabled.
+            install "yt-dlp-ejs>=0.8.0"
         }
 
         // Skipping .pyc precompilation keeps build times sane; first import is
@@ -143,6 +148,11 @@ dependencies {
     // MediaSessionCompat -> the lock-screen / notification transport controls
     // that navigator.mediaSession in the WebView drives.
     implementation 'androidx.media:media:1.7.0'
+    // EXPERIMENTAL YouTube: a headless V8 from the system WebView, used to solve
+    // YouTube's JS signature challenge (see JsEngine.kt / webview_jcp.py). Only
+    // touched when the user turns the experimental toggle on; adds no startup
+    // cost otherwise.
+    implementation 'androidx.javascriptengine:javascriptengine:1.0.0'
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -163,11 +173,11 @@ tasks.register('syncPythonSources', Sync) {
     from("$repoRoot/components") {
         into 'components'
         exclude '__pycache__/**'
-        // youtube_downloader.py is excluded from the APK: it can never work
-        // without a JS runtime, and it is the single largest module. Nothing
-        // imports it, because mobile_server.py makes UnifiedSearchService refuse
-        // to build a YouTube client (see the kill-switch there).
-        exclude 'youtube_downloader.py'
+        // youtube_downloader.py IS now included: the experimental WebView JS
+        // engine gives YouTube the runtime it was always missing. Its module-
+        // level imports are Android-safe (browser_cookie3 is imported lazily
+        // inside a desktop-only function); it stays inert unless the user turns
+        // the experimental toggle on.
     }
 
     doFirst {

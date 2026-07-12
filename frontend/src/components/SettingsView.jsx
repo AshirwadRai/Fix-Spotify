@@ -1,7 +1,120 @@
 import { useState, useEffect } from 'react';
-import { Volume2, Timer, Gauge, RotateCcw, Music2 } from 'lucide-react';
+import { Volume2, Timer, Gauge, RotateCcw, Music2, RefreshCw } from 'lucide-react';
 import { readAppSettings, writeAppSettings, DEFAULT_SETTINGS } from '../utils/settings';
 import { api } from '../api';
+import { isTauri } from '../utils/config';
+
+/**
+ * Check for updates from Settings — the desktop counterpart of the mobile
+ * updater. Uses tauri-plugin-updater: it fetches the signed latest.json the CI
+ * publishes, verifies it against the pubkey baked into tauri.conf.json, then
+ * downloads and installs over the current app. Local data (playlists, likes,
+ * history) lives in the OS webview store and is untouched by the swap.
+ */
+function UpdatesSection() {
+  const [version, setVersion] = useState('');
+  // idle | checking | available | downloading | uptodate | error | ready
+  const [state, setState] = useState('idle');
+  const [info, setInfo] = useState(null);
+  const [pct, setPct] = useState(0);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    import('@tauri-apps/api/app')
+      .then((m) => m.getVersion())
+      .then(setVersion)
+      .catch(() => {});
+  }, []);
+
+  if (!isTauri()) return null;   // web/dev build has nothing to update
+
+  const check = async () => {
+    setState('checking');
+    try {
+      const { check: checkUpdate } = await import('@tauri-apps/plugin-updater');
+      const update = await checkUpdate();
+      if (update) {
+        setInfo(update);
+        setState('available');
+      } else {
+        setState('uptodate');
+      }
+    } catch (e) {
+      console.error('update check failed', e);
+      setState('error');
+    }
+  };
+
+  const install = async () => {
+    if (!info) return;
+    setState('downloading');
+    setPct(0);
+    try {
+      let total = 0;
+      let got = 0;
+      // downloadAndInstall streams progress events as it fetches the installer.
+      await info.downloadAndInstall((event) => {
+        if (event.event === 'Started') total = event.data.contentLength || 0;
+        else if (event.event === 'Progress') {
+          got += event.data.chunkLength || 0;
+          if (total) setPct(Math.round((got / total) * 100));
+        }
+      });
+      setState('ready');
+      // Relaunch into the new version. "nvm if it asks for restart" — this IS the
+      // restart, done for the user.
+      const { relaunch } = await import('@tauri-apps/plugin-process');
+      await relaunch();
+    } catch (e) {
+      console.error('update install failed', e);
+      setState('error');
+    }
+  };
+
+  return (
+    <section className="mb-8">
+      <div className="flex items-center gap-3 mb-4">
+        <div className="w-9 h-9 rounded-lg bg-green-500/20 flex items-center justify-center">
+          <RefreshCw className="w-5 h-5 text-green-400" />
+        </div>
+        <div>
+          <h2 className="text-base font-bold text-white">Updates</h2>
+          <p className="text-xs text-spotify-text-subdued">
+            {state === 'available'
+              ? `Version ${info?.version} is available`
+              : `You're on version ${version || '—'}`}
+          </p>
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-white/10 bg-white/5 p-4">
+        <p className="text-sm text-spotify-text-subdued mb-3">
+          {state === 'checking' && 'Checking for updates…'}
+          {state === 'uptodate' && "You're up to date."}
+          {state === 'error' && 'Update check failed. Check your connection and try again.'}
+          {state === 'available' && 'Installing keeps your playlists, liked songs and history.'}
+          {state === 'downloading' && `Downloading… ${pct}%`}
+          {state === 'ready' && 'Restarting into the new version…'}
+          {state === 'idle' && 'Get the latest features and fixes.'}
+        </p>
+
+        {state === 'downloading' ? (
+          <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+            <div className="h-full bg-green-400 transition-[width]" style={{ width: `${pct}%` }} />
+          </div>
+        ) : (
+          <button
+            onClick={state === 'available' ? install : check}
+            disabled={state === 'checking' || state === 'ready'}
+            className="px-4 py-2 rounded-md text-sm font-semibold text-black bg-spotify-essential-bright-accent hover:brightness-110 transition-all disabled:opacity-50"
+          >
+            {state === 'available' ? 'Download & install' : state === 'checking' ? 'Checking…' : 'Check for updates'}
+          </button>
+        )}
+      </div>
+    </section>
+  );
+}
 
 const QUALITY_OPTIONS = [
   { value: 0, label: 'Auto', desc: 'Adjusts automatically based on source' },
@@ -26,6 +139,8 @@ export function SettingsView() {
     <div className="flex-1 overflow-y-auto px-6 pb-8 pt-4">
       <div className="max-w-2xl mx-auto">
         <h1 className="text-3xl font-bold text-white mb-8">Settings</h1>
+
+        <UpdatesSection />
 
         {/* ── Audio Quality ── */}
         <section className="mb-8">

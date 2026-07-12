@@ -51,6 +51,8 @@
     "store:allow-save",
     "notification:default",
     "notification:allow-show",
-    "updater:default"
+    "updater:default",
+    "process:default",
+    "process:allow-restart"
   ]
 }

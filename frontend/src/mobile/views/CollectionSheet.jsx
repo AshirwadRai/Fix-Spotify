@@ -71,10 +71,34 @@ export function CollectionSheet({ target, onClose, onMenu, onOpenArtist, onOpenA
     })();
 
     fetcher
-      .then((res) => {
-        if (cancelled || !res) return;
-        setData(res);
-        setSaved(isSaved({ name: res.name, artist: res.artist, type: target.type || 'album' }));
+      .then(async (res) => {
+        if (cancelled) return;
+        const got = res || {};
+        const hasTracks = (got.tracks || got.top_songs || []).length > 0;
+
+        // Some home-feed tiles arrive with no album_id / perma_url, so the
+        // backend has nothing to resolve and returns an empty tracklist — which
+        // showed as a dead "couldn't load any tracks". Rather than a dead end,
+        // search songs by the title (and artist) so the user still gets a
+        // playable list.
+        if (!hasTracks) {
+          const q = [target.name, target.artist].filter(Boolean).join(' ').trim();
+          if (q) {
+            try {
+              const sr = await api.search(q, { limit: 30 });
+              if (cancelled) return;
+              const found = sr.results || [];
+              if (found.length) {
+                setData({ ...got, name: got.name || target.name, tracks: found });
+                setSaved(isSaved({ name: target.name, artist: target.artist, type: target.type || 'album' }));
+                return;
+              }
+            } catch { /* fall through to whatever we had */ }
+          }
+        }
+
+        setData(got);
+        setSaved(isSaved({ name: got.name, artist: got.artist, type: target.type || 'album' }));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
