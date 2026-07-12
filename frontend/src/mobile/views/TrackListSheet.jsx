@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
-import { ChevronLeft, Play, Pause, Shuffle, Heart, Music2, Trash2, Pencil, WifiOff, Camera, ArrowDownCircle, Flag } from 'lucide-react';
+import { ChevronLeft, Play, Pause, Shuffle, Heart, Music2, Trash2, Pencil, WifiOff, Camera, ArrowDownCircle, MoreVertical } from 'lucide-react';
 import { usePlayer } from '../../store/PlayerContext';
 import { useDownloads } from '../../store/DownloadsContext';
 import { TrackItem } from '../components/TrackItem';
@@ -144,7 +144,7 @@ export function TrackListSheet({ view, onClose, onMenu }) {
               onClick={() => setFlagMenu((v) => !v)}
               className={`tap p-2 shrink-0 ${editing ? 'text-spotify-essential-bright-accent' : 'text-spotify-text-subdued'}`}
             >
-              <Flag size={19} />
+              <MoreVertical size={20} />
             </button>
           ) : (
             <div className="w-10 shrink-0" />

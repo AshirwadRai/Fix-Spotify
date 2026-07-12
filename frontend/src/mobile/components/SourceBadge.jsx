@@ -37,13 +37,15 @@ export function SourceBadge({ track, className = '' }) {
  * the track's real bitrate when the source reports one, otherwise the configured
  * quality ceiling.
  */
-export function QualityBadge({ track, className = '' }) {
+export function QualityBadge({ track, kbps: measured = 0, className = '' }) {
   const { showQualityBadge, audioQuality } = useAppSettings();
   if (!showQualityBadge) return null;
 
   const source = track?.playable_source || track?.primary_source || getPlayableSource(track);
   const reported = Number(track?.sources?.[source]?.bitrate) || 0;
-  const kbps = reported > 0 ? reported : qualityToBitrate(audioQuality);
+  // Prefer the live measured bitrate (what's actually streaming), then the
+  // source's own metadata, then the user's quality-setting ceiling.
+  const kbps = Number(measured) > 0 ? Number(measured) : reported > 0 ? reported : qualityToBitrate(audioQuality);
   if (!kbps) return null;
 
   return (

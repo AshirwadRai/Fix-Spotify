@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   ChevronDown, Play, Pause, SkipBack, SkipForward, Shuffle, Repeat, Repeat1,
   Heart, ArrowDownCircle, ListMusic, Mic2, Disc3, Check, GripVertical, Bluetooth,
-  Flag, Share2, ListPlus, RotateCcw, RotateCw,
+  MoreVertical, Share2, ListPlus,
 } from 'lucide-react';
 import { usePlayer } from '../../store/PlayerContext';
 import { useDownloads } from '../../store/DownloadsContext';
@@ -46,7 +46,7 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
   const {
     currentTrack, isPlaying, togglePlay, playNext, playPrevious,
     progress, duration, seek, shuffle, toggleShuffle, repeat, cycleRepeat,
-    queue, reorderQueue,
+    queue, reorderQueue, streamQuality,
   } = usePlayer();
   const { startDownload } = useDownloads();
   const playFrom = usePlayFrom();
@@ -111,9 +111,12 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
     setLyrics({ plain: '', synced: [], source: null });
   }, [currentTrack?.title, currentTrack?.artist]);
 
-  // Lyrics are fetched lazily — only when that pane is actually opened.
+  // Lyrics are PREFETCHED as soon as the track's duration is known (~1s into
+  // playback) instead of waiting for the pane to open — so tapping Lyrics is
+  // instant. Waiting for duration matters: lrclib uses it to pick the right
+  // synced version. One request per song; the backend caches.
   useEffect(() => {
-    if (pane !== 'lyrics' || !currentTrack || lyrics.source) return;
+    if (!currentTrack || lyrics.source || !(duration > 0)) return;
     let cancelled = false;
     setLyricsLoading(true);
     api
@@ -192,7 +195,7 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
           <p className="text-[11px] uppercase tracking-widest text-white/70 truncate px-2">
             {currentTrack.album ? cleanText(currentTrack.album) : 'Now playing'}
           </p>
-          {/* ⚑ overflow — share / add to playlist, instead of a bare "+". */}
+          {/* ⋮ overflow — share / add to playlist. */}
           <button
             type="button"
             aria-label="More options"
@@ -200,7 +203,7 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
             onClick={() => setMenuOpen((v) => !v)}
             className="tap p-1 -mr-1"
           >
-            <Flag size={20} />
+            <MoreVertical size={22} />
           </button>
         </div>
       </div>
@@ -256,17 +259,22 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
               ) : null}
             </div>
 
-            {/* Double-tap feedback: a brief ±10s ripple on the tapped side. */}
+            {/* Double-tap feedback, YouTube-style: a soft half-disc washes in
+                from the tapped edge with ◀◀◀ arrows and "−10 seconds". */}
             {seekFlash && (
               <div
-                className={`pointer-events-none absolute inset-y-0 flex items-center ${
-                  seekFlash === 'back' ? 'left-0 pl-8' : 'right-0 pr-8'
+                className={`pointer-events-none absolute inset-y-0 w-1/2 flex flex-col items-center justify-center gap-1.5 text-white animate-fade-in ${
+                  seekFlash === 'back'
+                    ? 'left-0 rounded-r-[100%] bg-gradient-to-r from-white/20 to-transparent'
+                    : 'right-0 rounded-l-[100%] bg-gradient-to-l from-white/20 to-transparent'
                 }`}
               >
-                <div className="flex flex-col items-center gap-1 rounded-full bg-black/50 px-4 py-3 text-white animate-fade-in">
-                  {seekFlash === 'back' ? <RotateCcw size={22} /> : <RotateCw size={22} />}
-                  <span className="text-[11px] font-semibold">10s</span>
-                </div>
+                <span className="flex items-center text-[20px] leading-none tracking-[-0.2em] drop-shadow">
+                  {seekFlash === 'back' ? '◀◀◀' : '▶▶▶'}
+                </span>
+                <span className="text-[13px] font-medium drop-shadow">
+                  {seekFlash === 'back' ? '−10 seconds' : '+10 seconds'}
+                </span>
               </div>
             )}
           </div>
@@ -363,7 +371,9 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
       {/* Track info + like/download. pb-6 lifts the whole controls stack off the
           screen's bottom edge so the toggles/transport don't sit on the gesture
           bar. */}
-      <div className="shrink-0 px-6 pt-4 pb-6">
+      {/* pb-10 lifts the whole info/controls stack clear of the gesture bar —
+          "a bit more above from the bottom". */}
+      <div className="shrink-0 px-6 pt-3 pb-10">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
             <h1 className="text-xl font-bold text-white truncate">
@@ -381,7 +391,9 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
                 {splitArtists(currentTrack.artist).join(', ')}
               </button>
               <SourceBadge track={currentTrack} className="shrink-0" />
-              <QualityBadge track={currentTrack} className="shrink-0" />
+              {/* kbps = what the source is ACTUALLY serving this song (reported
+                  live by the backend), not the quality-setting ceiling. */}
+              <QualityBadge track={currentTrack} kbps={streamQuality?.bitrate} className="shrink-0" />
             </div>
           </div>
 
@@ -466,36 +478,36 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
           )}
         </div>
 
-        {/* Transport */}
-        <div className="flex items-center justify-between mt-3">
+        {/* Transport — sized up so the primary controls read as primary. */}
+        <div className="flex items-center justify-between mt-4">
           <button
             type="button"
             aria-label="Shuffle"
             onClick={toggleShuffle}
             className={`tap p-2 ${shuffle ? 'text-spotify-essential-bright-accent' : 'text-white/60'}`}
           >
-            <Shuffle size={20} />
+            <Shuffle size={24} />
           </button>
 
           <button type="button" aria-label="Previous" onClick={playPrevious} className="tap p-2">
-            <SkipBack size={28} fill="white" className="text-white" />
+            <SkipBack size={34} fill="white" className="text-white" />
           </button>
 
           <button
             type="button"
             aria-label={isPlaying ? 'Pause' : 'Play'}
             onClick={togglePlay}
-            className="tap w-16 h-16 rounded-full bg-white flex items-center justify-center"
+            className="tap w-[72px] h-[72px] rounded-full bg-white flex items-center justify-center"
           >
             {isPlaying ? (
-              <Pause size={26} className="text-black" fill="black" />
+              <Pause size={30} className="text-black" fill="black" />
             ) : (
-              <Play size={26} className="text-black ml-0.5" fill="black" />
+              <Play size={30} className="text-black ml-1" fill="black" />
             )}
           </button>
 
           <button type="button" aria-label="Next" onClick={playNext} className="tap p-2">
-            <SkipForward size={28} fill="white" className="text-white" />
+            <SkipForward size={34} fill="white" className="text-white" />
           </button>
 
           <button
@@ -504,7 +516,7 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
             onClick={cycleRepeat}
             className={`tap p-2 ${repeat !== 'off' ? 'text-spotify-essential-bright-accent' : 'text-white/60'}`}
           >
-            {repeat === 'one' ? <Repeat1 size={20} /> : <Repeat size={20} />}
+            {repeat === 'one' ? <Repeat1 size={24} /> : <Repeat size={24} />}
           </button>
         </div>
 

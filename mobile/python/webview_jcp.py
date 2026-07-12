@@ -31,6 +31,10 @@ log = logging.getLogger("webview_jcp")
 _installed = False
 _JS_ERROR_SENTINEL = "__JSERR__"
 
+# Optional cookies.txt path (set by mobile_server). Used as the auth fallback
+# when YouTube demands a signed-in session ("confirm you're not a bot").
+COOKIES_FILE = ""
+
 
 def _run_via_webview(script: str) -> str:
     """Execute a solver program in the WebView's V8 and return its stdout.
@@ -162,6 +166,9 @@ def self_test(video_id: str = "BaW_jenozKc") -> bool:
             "format": "bestaudio/best",
             "js_runtimes": {"webview": {}},
         }
+        import os
+        if COOKIES_FILE and os.path.exists(COOKIES_FILE):
+            opts["cookiefile"] = COOKIES_FILE
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(
                 f"https://www.youtube.com/watch?v={video_id}", download=False

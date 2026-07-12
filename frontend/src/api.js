@@ -173,6 +173,26 @@ class ApiClient {
     return r.json();
   }
 
+  /** YouTube cookies.txt (mobile auth fallback). Never throws. */
+  async getYouTubeCookies() {
+    try {
+      const r = await fetch(apiUrl('/youtube/cookies'));
+      return r.ok ? await r.json() : { present: false };
+    } catch {
+      return { present: false };
+    }
+  }
+
+  /** Import cookies.txt content; empty string removes it. */
+  async setYouTubeCookies(content) {
+    const r = await fetch(apiUrl('/youtube/cookies'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: content || '' }),
+    });
+    return r.json();
+  }
+
   /**
    * Delete a downloaded file from disk (mobile). The backend refuses any path
    * outside the download folder, so a bad `path` resolves to { ok:false }.

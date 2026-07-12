@@ -93,9 +93,40 @@ _original_get_client = UnifiedSearchService._get_client
 _youtube_enabled = False
 
 
+def _yt_cookies_path() -> str:
+    """Where the user-imported YouTube cookies.txt lives (app-private)."""
+    return os.path.join(android_env.files_dir(), "youtube_cookies.txt")
+
+
+def _drop_yt_client():
+    """Forget the cached YouTube client so the next use picks up new cookies."""
+    if _search_service is not None:
+        for st in _DISABLED_SOURCES:
+            _search_service._clients.pop(st, None)
+
+
 def _get_client_no_youtube(self, source_type):
-    if not _youtube_enabled and source_type in _DISABLED_SOURCES:
-        return None
+    if source_type in _DISABLED_SOURCES:
+        if not _youtube_enabled:
+            return None
+        with self._clients_lock:
+            if source_type not in self._clients:
+                from components.youtube_downloader import YouTubeClient
+
+                class _MobileYT(YouTubeClient):
+                    # The desktop opts enable deno/node runtimes; mobile's JS
+                    # engine registers as "webview" and non-default runtimes
+                    # must be explicitly enabled or yt-dlp won't use them.
+                    def _get_base_ydl_opts(self, *a, **kw):
+                        o = super()._get_base_ydl_opts(*a, **kw)
+                        o.setdefault("js_runtimes", {})["webview"] = {}
+                        return o
+
+                ck = _yt_cookies_path()
+                self._clients[source_type] = _MobileYT(
+                    cookies_file=ck if os.path.exists(ck) else None
+                )
+            return self._clients[source_type]
     return _original_get_client(self, source_type)
 
 
@@ -425,6 +456,17 @@ def search_suggestions():
             timeout_seconds=6.0,
         )
         results = _search_service.search(q, req_config)
+
+        # While TYPING, what the user wants is almost always a completion of
+        # what they've typed — so titles that start with the query outrank
+        # titles that merely contain it, which outrank fuzzy-only hits.
+        qn = q.lower().strip()
+        results = sorted(results, key=lambda t: (
+            0 if (t.title or "").lower().startswith(qn)
+            else 1 if qn in (t.title or "").lower()
+            else 2,
+            len(t.title or ""),
+        ))
 
         seen, suggestions = set(), []
         for track in results:
@@ -1347,6 +1389,7 @@ def youtube_experimental_toggle():
 
     try:
         import webview_jcp
+        webview_jcp.COOKIES_FILE = _yt_cookies_path()  # auth fallback, if imported
         if not webview_jcp.is_supported():
             return jsonify({"enabled": False, "ok": False,
                             "error": "The built-in JS engine could not start on "
@@ -1365,6 +1408,38 @@ def youtube_experimental_toggle():
     settings["youtube_experimental"] = True
     android_env.write_settings(settings)
     return jsonify({"enabled": True, "ok": True})
+
+
+@app.get("/api/youtube/cookies")
+def youtube_cookies_status():
+    return jsonify({"present": os.path.exists(_yt_cookies_path())})
+
+
+@app.post("/api/youtube/cookies")
+def youtube_cookies_set():
+    """Import (or remove, with empty content) the user's YouTube cookies.txt.
+
+    Cookies are the auth fallback for "sign in to confirm you're not a bot" —
+    exported from a logged-in browser on a PC. Stored app-private; never leaves
+    the device (yt-dlp sends them to YouTube only).
+    """
+    content = (_body().get("content") or "").strip()
+    path = _yt_cookies_path()
+    if not content:
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
+        _drop_yt_client()
+        return jsonify({"present": False, "ok": True})
+    if "youtube.com" not in content:
+        return jsonify({"ok": False, "present": os.path.exists(path),
+                        "error": "That file has no YouTube cookies — export "
+                                 "cookies.txt from a browser signed in to YouTube."})
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+    _drop_yt_client()   # rebuilt with cookies on next use
+    return jsonify({"present": True, "ok": True})
 
 
 # ─── SPA ──────────────────────────────────────────────────────────────────────
