@@ -13,7 +13,6 @@ import { SpotifyImportSheet } from './components/SpotifyImportSheet';
 import { HomeTab } from './views/HomeTab';
 import { SearchTab } from './views/SearchTab';
 import { LibraryTab } from './views/LibraryTab';
-import { DownloadsTab } from './views/DownloadsTab';
 import { SettingsTab } from './views/SettingsTab';
 import { CollectionSheet } from './views/CollectionSheet';
 import { TrackListSheet } from './views/TrackListSheet';
@@ -244,9 +243,6 @@ function Shell() {
         </div>
         <div className={tab === 'library' ? 'h-full' : 'hidden'}>
           <LibraryTab onOpenList={openList} onOpenCollection={openCollection} />
-        </div>
-        <div className={tab === 'downloads' ? 'h-full' : 'hidden'}>
-          <DownloadsTab onMenu={openMenu} />
         </div>
 
         {collection && (

@@ -32,10 +32,10 @@ export function Toaster() {
   if (!current) return null;
 
   return (
-    <div className="fixed bottom-28 left-1/2 z-[9999] -translate-x-1/2 px-4 pointer-events-none">
+    <div className="fixed bottom-28 inset-x-3 z-[9999] pointer-events-none">
       <div
         key={current.id}
-        className="rounded-full border border-white/10 bg-[#2e2e2e]/95 px-4 py-2.5 text-sm text-white shadow-lg backdrop-blur-md"
+        className="flex items-center rounded-2xl border border-white/10 bg-[#2e2e2e]/95 px-4 py-3 text-[13px] font-medium text-white shadow-xl backdrop-blur-md"
         style={{ animation: 'toastIn 220ms cubic-bezier(0.22,0.61,0.36,1)' }}
       >
         {current.message}

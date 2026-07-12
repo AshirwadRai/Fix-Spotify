@@ -85,10 +85,11 @@
   }
 
   html {
-    /* 93.75% of the 16px default = a 15px root. Every rem-based size (Tailwind's
+    /* 87.5% of the 16px default = a 14px root. Every rem-based size (Tailwind's
        text-sm/base/lg, gaps, padding) scales down with it for a tighter, more
-       "native" mobile feel, without touching each component. */
-    font-size: 93.75%;
+       "native" mobile feel, without touching each component. Dropped from 15px
+       to shrink the overall type a notch — the app read a touch large. */
+    font-size: 87.5%;
   }
 
   body {

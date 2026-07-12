@@ -86,7 +86,7 @@ export function HomeTab({ onHomeItem, onOpenSettings }) {
     <div className="scroll-y h-full">
       <div className="pt-safe">
         <div className="flex items-center justify-between px-4 pt-4 pb-2">
-          <h1 className="text-2xl font-bold">{greeting}</h1>
+          <h1 className="text-[26px] font-extrabold tracking-tight">{greeting}</h1>
           <button
             type="button"
             aria-label="Settings"
@@ -124,7 +124,7 @@ export function HomeTab({ onHomeItem, onOpenSettings }) {
 
       {recent.length > 0 && (
         <section className="mt-6">
-          <h2 className="text-lg font-bold px-4 mb-3">Recently played</h2>
+          <h2 className="text-[19px] font-extrabold tracking-tight px-4 mb-3">Recently played</h2>
           <div className="rail px-4">
             {recent.map((t, i) => (
               <CardItem
@@ -141,7 +141,7 @@ export function HomeTab({ onHomeItem, onOpenSettings }) {
 
       {rows.map((row) => (
         <section key={row.title} className="mt-6">
-          <h2 className="text-lg font-bold px-4 mb-3">{row.title}</h2>
+          <h2 className="text-[19px] font-extrabold tracking-tight px-4 mb-3">{row.title}</h2>
           <div className="rail px-4">
             {(row.items || []).map((item, i) => (
               <CardItem

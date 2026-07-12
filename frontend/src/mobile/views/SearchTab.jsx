@@ -118,7 +118,7 @@ export function SearchTab({ onMenu, onOpenArtist, onOpenAlbum, onImportSpotify }
       {/* Search bar */}
       <div className="pt-safe shrink-0 bg-spotify-black">
         <div className="px-4 pt-4 pb-3">
-          <h1 className="text-2xl font-bold mb-3">Search</h1>
+          <h1 className="text-[26px] font-extrabold tracking-tight mb-3">Search</h1>
           <form
             onSubmit={(e) => { e.preventDefault(); runSearch(query); }}
             className="relative"
@@ -137,7 +137,7 @@ export function SearchTab({ onMenu, onOpenArtist, onOpenAlbum, onImportSpotify }
               type="search"
               enterKeyHint="search"
               placeholder="Songs, artists, or a Spotify link"
-              className="w-full h-12 pl-11 pr-10 rounded bg-white text-black text-[15px] placeholder:text-black/50 outline-none"
+              className="w-full h-12 pl-11 pr-10 rounded-xl bg-white text-black text-[15px] placeholder:text-black/50 outline-none"
             />
             {query && (
               <button
@@ -232,7 +232,7 @@ export function SearchTab({ onMenu, onOpenArtist, onOpenAlbum, onImportSpotify }
           <>
             {artists.length > 0 && (
               <section className="mt-4">
-                <h2 className="text-lg font-bold px-4 mb-3">Artists</h2>
+                <h2 className="text-[19px] font-extrabold tracking-tight px-4 mb-3">Artists</h2>
                 <div className="rail px-4">
                   {artists.slice(0, 10).map((a) => (
                     <CardItem
@@ -250,7 +250,7 @@ export function SearchTab({ onMenu, onOpenArtist, onOpenAlbum, onImportSpotify }
 
             {albums.length > 0 && (
               <section className="mt-6">
-                <h2 className="text-lg font-bold px-4 mb-3">Albums</h2>
+                <h2 className="text-[19px] font-extrabold tracking-tight px-4 mb-3">Albums</h2>
                 <div className="rail px-4">
                   {albums.slice(0, 10).map((a, i) => (
                     <CardItem
@@ -267,7 +267,7 @@ export function SearchTab({ onMenu, onOpenArtist, onOpenAlbum, onImportSpotify }
 
             {results.length > 0 && (
               <section className="mt-6">
-                <h2 className="text-lg font-bold px-4 mb-1">Songs</h2>
+                <h2 className="text-[19px] font-extrabold tracking-tight px-4 mb-1">Songs</h2>
                 {results.map((t, i) => (
                   <TrackItem
                     key={`${t.title}-${t.artist}-${i}`}

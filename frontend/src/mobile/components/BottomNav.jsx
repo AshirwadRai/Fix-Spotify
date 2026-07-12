@@ -1,22 +1,24 @@
-import { Home, Search, Library, Download } from 'lucide-react';
+import { Home, Search, Library } from 'lucide-react';
 
 const TABS = [
   { id: 'home', label: 'Home', Icon: Home },
   { id: 'search', label: 'Search', Icon: Search },
-  { id: 'library', label: 'Library', Icon: Library },
-  { id: 'downloads', label: 'Downloads', Icon: Download },
+  { id: 'library', label: 'Your Library', Icon: Library },
 ];
 
 /**
- * The primary navigation — four icon-only destinations, always visible and
- * thumb-reachable. No text labels and no active "pill" behind the icon: the
- * active tab is signalled purely by a brighter icon + a slightly heavier
- * stroke, which keeps the bar clean and lets the gradient/background show
- * through.
+ * Primary navigation — three thumb-reachable destinations with a label under
+ * each icon (Spotify's own pattern; a bare icon makes "Library" ambiguous).
+ *
+ * The bar is lightly glassy — a translucent surface with a blur — so the
+ * artwork/gradient of whatever is playing bleeds through a touch and the app
+ * reads as layered rather than a flat opaque strip. The active tab fills its
+ * icon and brightens its label; inactive stays outlined and subdued. Motion is
+ * state-only: colour + a hair of scale on press, nothing decorative.
  */
 export function BottomNav({ active, onChange }) {
   return (
-    <nav className="shrink-0 bg-spotify-base/95 backdrop-blur border-t border-white/[0.06] pb-safe">
+    <nav className="shrink-0 border-t border-white/[0.06] bg-spotify-base/70 backdrop-blur-xl pb-safe">
       <div className="flex items-stretch">
         {TABS.map(({ id, label, Icon }) => {
           const isActive = active === id;
@@ -25,19 +27,26 @@ export function BottomNav({ active, onChange }) {
               key={id}
               type="button"
               onClick={() => onChange(id)}
-              aria-label={label}
               aria-current={isActive ? 'page' : undefined}
-              className="flex-1 flex items-center justify-center py-3.5 tap"
+              className="tap flex flex-1 flex-col items-center gap-1 py-2.5"
             >
               <Icon
-                size={27}
-                strokeWidth={isActive ? 2.4 : 1.9}
-                className={
-                  isActive
-                    ? 'text-white'
-                    : 'text-spotify-essential-subdued'
-                }
+                size={23}
+                strokeWidth={isActive ? 2.3 : 1.9}
+                fill={isActive ? 'currentColor' : 'none'}
+                className={`transition-colors duration-fast ${
+                  isActive ? 'text-white' : 'text-spotify-essential-subdued'
+                }`}
               />
+              <span
+                className={`text-[10px] leading-none tracking-wide transition-colors duration-fast ${
+                  isActive
+                    ? 'font-semibold text-white'
+                    : 'font-medium text-spotify-essential-subdued'
+                }`}
+              >
+                {label}
+              </span>
             </button>
           );
         })}

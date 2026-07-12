@@ -57,7 +57,7 @@ export function LibraryTab({ onOpenList, onOpenCollection }) {
     <div className="flex flex-col h-full">
       <div className="pt-safe shrink-0">
         <div className="flex items-center justify-between px-4 pt-4 pb-3">
-          <h1 className="text-2xl font-bold">Your Library</h1>
+          <h1 className="text-[26px] font-extrabold tracking-tight">Your Library</h1>
           <button
             type="button"
             aria-label="Create playlist"

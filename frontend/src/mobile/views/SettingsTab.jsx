@@ -18,20 +18,25 @@ const QUALITIES = [
   { value: 320, label: 'Very High', hint: '320 kbps — best quality' },
 ];
 
-const CROSSFADE = [
-  { value: 0, label: 'Off' },
-  { value: 6, label: '6s' },
-  { value: 12, label: '12s' },
-];
-
-function Section({ title, subtitle, children }) {
+function Section({ title, subtitle, children, inset = false }) {
   return (
     <section className="px-4 py-5 border-b border-white/[0.07]">
-      <h2 className="text-[17px] font-bold">{title}</h2>
+      <h2 className="text-[17px] font-extrabold tracking-tight">{title}</h2>
       {subtitle && (
-        <p className="text-[13px] text-spotify-text-subdued mt-0.5 mb-3">{subtitle}</p>
+        <p className="text-[12.5px] text-spotify-text-subdued mt-0.5">{subtitle}</p>
       )}
-      <div className={subtitle ? '' : 'mt-3'}>{children}</div>
+      {/* inset === true nests the child options inside a subtle card so the
+          section heading reads as the parent and the rows as its children —
+          the main/child hierarchy the flat list was missing. */}
+      <div
+        className={
+          inset
+            ? 'mt-3 rounded-xl bg-white/[0.035] px-3 divide-y divide-white/[0.05]'
+            : 'mt-3'
+        }
+      >
+        {children}
+      </div>
     </section>
   );
 }
@@ -104,7 +109,7 @@ export function SettingsTab({ onClose }) {
       </div>
 
       <div className="scroll-y flex-1">
-        <Section title="Audio Quality" subtitle="Choose preferred streaming bitrate">
+        <Section title="Audio Quality" subtitle="Choose preferred streaming bitrate" inset>
           {QUALITIES.map((q) => (
             <Choice
               key={q.value}
@@ -116,26 +121,26 @@ export function SettingsTab({ onClose }) {
           ))}
         </Section>
 
-        <Section title="Crossfade" subtitle="Smoothly fade between tracks">
-          <div className="flex gap-2">
-            {CROSSFADE.map((c) => (
-              <button
-                key={c.value}
-                type="button"
-                onClick={() => writeAppSetting('crossfadeDuration', c.value)}
-                className={`flex-1 py-2.5 rounded-full text-[14px] font-medium ${
-                  Number(settings.crossfadeDuration) === c.value
-                    ? 'bg-white text-black'
-                    : 'bg-spotify-background-tinted-base text-white'
-                }`}
-              >
-                {c.label}
-              </button>
-            ))}
+        <Section title="Crossfade" subtitle="Let one song melt into the next">
+          <div className="flex items-center gap-4">
+            <span className="text-[12px] text-spotify-text-subdued w-8">Off</span>
+            <input
+              type="range"
+              min="0"
+              max="12"
+              step="1"
+              value={Number(settings.crossfadeDuration) || 0}
+              onChange={(e) => writeAppSetting('crossfadeDuration', Number(e.target.value))}
+              aria-label="Crossfade duration in seconds"
+              className="slider flex-1"
+            />
+            <span className="w-10 text-right text-[13px] font-bold tabular-nums text-white">
+              {Number(settings.crossfadeDuration) > 0 ? `${settings.crossfadeDuration}s` : '0s'}
+            </span>
           </div>
         </Section>
 
-        <Section title="Playback" subtitle="Autoplay and display options">
+        <Section title="Playback" subtitle="Autoplay and display options" inset>
           <Toggle
             label="Autoplay"
             hint="When your queue ends, keep playing songs similar to what you were listening to"
@@ -188,19 +193,28 @@ export function SettingsTab({ onClose }) {
 
         <UpdateSection />
 
-        <Section title="Reset">
+        <section className="px-4 py-6">
           <button
             type="button"
             onClick={() => {
               writeAppSettings({ ...DEFAULT_SETTINGS });
               toast('Settings reset to defaults');
             }}
-            className="flex items-center gap-2 py-2 text-[15px] text-spotify-essential-negative"
+            className="tap flex w-full items-center gap-3 rounded-2xl border border-spotify-essential-negative/30 bg-spotify-essential-negative/[0.08] px-4 py-3.5 text-left active:bg-spotify-essential-negative/[0.16]"
           >
-            <RotateCcw size={18} />
-            Reset all settings to defaults
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-spotify-essential-negative/15 text-spotify-essential-negative">
+              <RotateCcw size={18} />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-[15px] font-semibold text-spotify-essential-negative">
+                Reset all settings
+              </span>
+              <span className="block text-[12px] text-spotify-text-subdued">
+                Puts everything back to defaults
+              </span>
+            </span>
           </button>
-        </Section>
+        </section>
 
         <div className="h-6" />
       </div>
@@ -268,7 +282,7 @@ function StorageSection() {
   const blocked = info?.using_fallback;
 
   return (
-    <Section title="Storage">
+    <Section title="Storage" subtitle="Where your downloaded songs hang out 🎧">
       <div className="flex items-start gap-3 py-1">
         <HardDrive size={18} className="text-spotify-text-subdued shrink-0 mt-0.5" />
         <div className="min-w-0 flex-1">
@@ -450,13 +464,17 @@ function UpdateSection() {
             </button>
           )}
 
-          {(state === 'current' || state === 'failed') && (
+          {(state === 'current' || state === 'failed' || state === 'checking') && (
             <button
               type="button"
+              disabled={state === 'checking'}
               onClick={() => { setState('checking'); checkForUpdate(); }}
-              className="mt-3 px-5 py-2 rounded-full bg-white/10 text-[13px] font-semibold"
+              className="tap mt-3 inline-flex items-center gap-2 rounded-full bg-white/10 px-5 py-2 text-[13px] font-semibold disabled:opacity-70"
             >
-              Check again
+              {/* The icon rolls inside the button while checking — self-contained,
+                  so the surrounding layout never reflows (no page "shake"). */}
+              <RefreshCw size={14} className={state === 'checking' ? 'animate-spin' : ''} />
+              {state === 'checking' ? 'Checking…' : 'Check again'}
             </button>
           )}
 
