@@ -12,6 +12,7 @@ const FILTERS = [
   { id: 'all', label: 'All' },
   { id: 'playlists', label: 'Playlists' },
   { id: 'albums', label: 'Albums' },
+  { id: 'artists', label: 'Artists' },
 ];
 
 /**
@@ -37,7 +38,11 @@ export function LibraryTab({ onOpenList, onOpenCollection }) {
   );
 
   const showPlaylists = filter === 'all' || filter === 'playlists';
+  // Saved collections hold both albums and artists; split them by type.
+  const albums = collections.filter((c) => c.type !== 'artist');
+  const artists = collections.filter((c) => c.type === 'artist');
   const showAlbums = filter === 'all' || filter === 'albums';
+  const showArtists = filter === 'all' || filter === 'artists';
 
   const submitNew = (e) => {
     e.preventDefault();
@@ -148,9 +153,9 @@ export function LibraryTab({ onOpenList, onOpenCollection }) {
           ))}
 
         {showAlbums &&
-          collections.map((c, i) => (
+          albums.map((c, i) => (
             <Row
-              key={`${c.name}-${i}`}
+              key={`al-${c.name}-${i}`}
               image={c.image}
               Icon={Disc3}
               title={cleanText(c.name)}
@@ -159,10 +164,26 @@ export function LibraryTab({ onOpenList, onOpenCollection }) {
             />
           ))}
 
+        {showArtists &&
+          artists.map((c, i) => (
+            <Row
+              key={`ar-${c.name}-${i}`}
+              image={c.image}
+              Icon={Music2}
+              rounded
+              title={cleanText(c.name)}
+              subtitle="Artist"
+              onClick={() => onOpenCollection(c)}
+            />
+          ))}
+
         {showPlaylists && playlists.length === 0 && filter === 'playlists' && (
           <Empty text="No playlists yet. Tap + to create one." />
         )}
-        {showAlbums && collections.length === 0 && filter === 'albums' && (
+        {showArtists && artists.length === 0 && filter === 'artists' && (
+          <Empty text="Artists you like will show up here." />
+        )}
+        {showAlbums && albums.length === 0 && filter === 'albums' && (
           <Empty text="Albums you save will show up here." />
         )}
 
@@ -174,7 +195,7 @@ export function LibraryTab({ onOpenList, onOpenCollection }) {
 
 // `cover` is an escape hatch for a rendered element (the playlist mosaic);
 // `image` stays the simple URL path used by albums.
-function Row({ image, cover, Icon, gradient, filled, title, subtitle, onClick }) {
+function Row({ image, cover, Icon, gradient, filled, rounded, title, subtitle, onClick }) {
   return (
     <button
       type="button"
@@ -182,9 +203,9 @@ function Row({ image, cover, Icon, gradient, filled, title, subtitle, onClick })
       className="tap w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors duration-fast active:bg-white/5"
     >
       <div
-        className={`w-14 h-14 rounded overflow-hidden shrink-0 flex items-center justify-center ${
-          gradient ? `bg-gradient-to-br ${gradient}` : 'bg-spotify-highlight'
-        }`}
+        className={`w-14 h-14 overflow-hidden shrink-0 flex items-center justify-center ${
+          rounded ? 'rounded-full' : 'rounded'
+        } ${gradient ? `bg-gradient-to-br ${gradient}` : 'bg-spotify-highlight'}`}
       >
         {cover || (image ? (
           <img src={image} alt="" className="w-full h-full object-cover" />

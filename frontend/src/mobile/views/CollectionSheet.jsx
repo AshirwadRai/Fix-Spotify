@@ -181,41 +181,40 @@ export function CollectionSheet({ target, onClose, onMenu, onOpenArtist, onOpenA
 
       {/* Actions */}
       <div className="flex items-center gap-4 px-4 py-3 bg-spotify-base">
+        {/* Save works for artists too — the saved store already keys on type. */}
+        <button
+          type="button"
+          aria-label={saved ? 'Remove from library' : 'Save to library'}
+          onClick={() => {
+            toggleSaved({
+              name: data?.name || target.name,
+              artist: data?.artist || target.artist,
+              image,
+              type: target.type || 'album',
+              perma_url: target.perma_url,
+              album_id: target.album_id,
+              tracks,
+            });
+            setSaved((v) => !v);
+          }}
+          className="tap p-1"
+        >
+          <Heart
+            size={24}
+            className={saved ? 'text-spotify-essential-bright-accent' : 'text-white/70'}
+            fill={saved ? 'currentColor' : 'none'}
+          />
+        </button>
         {!isArtist && (
-          <>
-            <button
-              type="button"
-              aria-label={saved ? 'Remove from library' : 'Save to library'}
-              onClick={() => {
-                toggleSaved({
-                  name: data?.name || target.name,
-                  artist: data?.artist || target.artist,
-                  image,
-                  type: target.type || 'album',
-                  perma_url: target.perma_url,
-                  album_id: target.album_id,
-                  tracks,
-                });
-                setSaved((v) => !v);
-              }}
-              className="tap p-1"
-            >
-              <Heart
-                size={24}
-                className={saved ? 'text-spotify-essential-bright-accent' : 'text-white/70'}
-                fill={saved ? 'currentColor' : 'none'}
-              />
-            </button>
-            <button
-              type="button"
-              aria-label="Download all"
-              onClick={() => downloadMany(tracks)}
-              className="tap p-1"
-              disabled={tracks.length === 0}
-            >
-              <Download size={24} className="text-white/70" />
-            </button>
-          </>
+          <button
+            type="button"
+            aria-label="Download all"
+            onClick={() => downloadMany(tracks)}
+            className="tap p-1"
+            disabled={tracks.length === 0}
+          >
+            <Download size={24} className="text-white/70" />
+          </button>
         )}
 
         <div className="flex-1" />

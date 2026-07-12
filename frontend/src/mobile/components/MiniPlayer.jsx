@@ -1,8 +1,10 @@
 import { useState, useRef, useCallback, useEffect, useLayoutEffect } from 'react';
-import { Play, Pause, SkipForward, Heart } from 'lucide-react';
+import { Play, Pause, Heart, Bluetooth } from 'lucide-react';
 import { usePlayer } from '../../store/PlayerContext';
 import { getBestArtworkUrl, cleanText } from '../../utils/tracks';
 import { isLiked, toggleLiked } from '../../utils/likes';
+import { useDominantColor } from '../../utils/useDominantColor';
+import { useAudioOutput } from '../androidBridge';
 
 /**
  * Horizontally scrolls its text only when it's too long to fit, Spotify-style:
@@ -44,7 +46,9 @@ function Marquee({ text, className = '' }) {
  * current tab, and the progress bar can be dragged to seek.
  */
 export function MiniPlayer({ onExpand }) {
-  const { currentTrack, isPlaying, togglePlay, playNext, progress, duration, seek } = usePlayer();
+  const { currentTrack, isPlaying, togglePlay, progress, duration, seek } = usePlayer();
+  const rgb = useDominantColor(getBestArtworkUrl(currentTrack));
+  const audioOutput = useAudioOutput(!!currentTrack);
   const [liked, setLiked] = useState(false);
   // Re-read when the track changes (isLiked reads localStorage, not reactive).
   useEffect(() => { setLiked(currentTrack ? isLiked(currentTrack) : false); }, [currentTrack]);
@@ -91,9 +95,16 @@ export function MiniPlayer({ onExpand }) {
   const shown = scrubbing != null ? scrubbing : progress;
   const pct = duration > 0 ? (shown / duration) * 100 : 0;
 
+  // Tint the bar from the artwork, like Spotify, instead of a flat grey. The
+  // dominant colour is darkened so white text/icons stay readable on top.
+  const tint = rgb ? `rgb(${rgb.split(',').map((n) => Math.round(Number(n) * 0.5)).join(',')})` : null;
+
   return (
-    <div className="shrink-0 mx-2 mb-1 rounded-lg bg-spotify-elevated-base overflow-hidden shadow-lg">
-      <div className="flex items-center gap-3 px-2 py-2">
+    <div
+      className="shrink-0 mx-2 mb-1 rounded-lg overflow-hidden shadow-lg transition-colors duration-slow ease-soft"
+      style={{ backgroundColor: tint || undefined }}
+    >
+      <div className={`flex items-center gap-3 px-2 py-2 ${tint ? '' : 'bg-spotify-elevated-base'}`}>
         <button
           type="button"
           onClick={onExpand}
@@ -106,9 +117,17 @@ export function MiniPlayer({ onExpand }) {
           </div>
           <div className="flex-1 min-w-0">
             <Marquee text={cleanText(currentTrack.title)} className="text-[13px] text-white leading-tight" />
-            <p className="text-[12px] text-spotify-text-subdued truncate leading-tight">
-              {cleanText(currentTrack.artist)}
-            </p>
+            {/* Device name when on Bluetooth, else the artist. */}
+            {audioOutput ? (
+              <p className="flex items-center gap-1 text-[12px] text-white/80 truncate leading-tight">
+                <Bluetooth size={11} className="shrink-0" />
+                <span className="truncate">{audioOutput}</span>
+              </p>
+            ) : (
+              <p className="text-[12px] text-white/70 truncate leading-tight">
+                {cleanText(currentTrack.artist)}
+              </p>
+            )}
           </div>
         </button>
 
@@ -120,7 +139,7 @@ export function MiniPlayer({ onExpand }) {
         >
           <Heart
             size={20}
-            className={liked ? 'text-spotify-essential-bright-accent' : 'text-white/80'}
+            className={liked ? 'text-spotify-essential-bright-accent' : 'text-white/90'}
             fill={liked ? 'currentColor' : 'none'}
           />
         </button>
@@ -128,17 +147,9 @@ export function MiniPlayer({ onExpand }) {
           type="button"
           aria-label={isPlaying ? 'Pause' : 'Play'}
           onClick={togglePlay}
-          className="tap p-2 text-white"
-        >
-          {isPlaying ? <Pause size={22} fill="white" /> : <Play size={22} fill="white" />}
-        </button>
-        <button
-          type="button"
-          aria-label="Next track"
-          onClick={playNext}
           className="tap p-2 pr-1 text-white"
         >
-          <SkipForward size={20} fill="white" />
+          {isPlaying ? <Pause size={22} fill="white" /> : <Play size={22} fill="white" />}
         </button>
       </div>
 

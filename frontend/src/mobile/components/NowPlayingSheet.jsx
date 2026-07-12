@@ -273,8 +273,10 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
         )}
       </div>
 
-      {/* Track info + like/download */}
-      <div className="shrink-0 px-6 pt-4">
+      {/* Track info + like/download. pb-6 lifts the whole controls stack off the
+          screen's bottom edge so the toggles/transport don't sit on the gesture
+          bar. */}
+      <div className="shrink-0 px-6 pt-4 pb-6">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
             <h1 className="text-xl font-bold text-white truncate">
@@ -352,36 +354,35 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
           </div>
         </div>
 
-        {/* Pane switcher — Song / Lyrics / Queue. Sits ABOVE the transport row so
-            the play controls stay in the same spot regardless of which pane is
-            open. */}
-        <div className="flex items-center justify-center gap-2 mt-3">
-          {TABS.map(({ id, label, Icon }) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setPane(id)}
-              aria-pressed={pane === id}
-              className={`tap flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[11px] font-medium transition-colors duration-fast ${
-                pane === id
-                  ? 'bg-white/15 text-white'
-                  : 'text-white/50 active:text-white'
-              }`}
-            >
-              <Icon size={15} />
-              {label}
-            </button>
-          ))}
-        </div>
-
-        {/* Where the sound is actually going. Only shown when it ISN'T the
-            phone's own speaker, so it stays quiet until it's useful. */}
-        {audioOutput && (
-          <div className="flex items-center justify-center gap-1.5 mt-2 text-[11px] text-spotify-essential-bright-accent">
-            <Bluetooth size={13} className="shrink-0" />
-            <span className="truncate max-w-[70%]">{audioOutput}</span>
+        {/* One row: Song / Lyrics / Queue toggles on the LEFT, the Bluetooth
+            output on the RIGHT. Above the transport so the play controls never
+            shift. */}
+        <div className="flex items-center justify-between gap-2 mt-3">
+          <div className="flex items-center gap-1.5">
+            {TABS.map(({ id, label, Icon }) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setPane(id)}
+                aria-pressed={pane === id}
+                className={`tap flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-medium transition-colors duration-fast ${
+                  pane === id ? 'bg-white/15 text-white' : 'text-white/50 active:text-white'
+                }`}
+              >
+                <Icon size={15} />
+                {label}
+              </button>
+            ))}
           </div>
-        )}
+
+          {/* Where the sound is going — only when it isn't the phone speaker. */}
+          {audioOutput && (
+            <div className="flex items-center gap-1 min-w-0 text-[11px] text-spotify-essential-bright-accent">
+              <Bluetooth size={13} className="shrink-0" />
+              <span className="truncate">{audioOutput}</span>
+            </div>
+          )}
+        </div>
 
         {/* Transport */}
         <div className="flex items-center justify-between mt-3">
