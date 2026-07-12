@@ -113,16 +113,42 @@ jobs:
           key: rust-${{ runner.os }}-${{ hashFiles('frontend/src-tauri/Cargo.lock') }}
           restore-keys: rust-${{ runner.os }}-
 
-      # Signing the build produces the .sig the updater verifies. Without these
-      # secrets the app still builds — it just can't publish a trusted update.
-      #   TAURI_SIGNING_PRIVATE_KEY          = contents of ~/.tauri/fixspotify.key
-      #   TAURI_SIGNING_PRIVATE_KEY_PASSWORD = its password
-      - name: Build Tauri app
+      # Signing produces the .sig the desktop updater verifies. The key MUST be a
+      # single base64 line: a trailing newline (e.g. from `cat key | clip`) makes
+      # tauri fail with "failed to decode base64 key: Invalid symbol 10" (10 is
+      # '\n'). So strip ALL whitespace from the key — base64 has none — and only
+      # then sign. With no key at all, build UNSIGNED (updater artifacts off) so
+      # the release still publishes the .exe.
+      - name: Prepare updater signing key
+        id: signing
+        shell: bash
+        run: |
+          KEY=$(printf '%s' "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" | tr -d '[:space:]')
+          PW=$(printf '%s' "${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}" | tr -d '\r\n')
+          if [ -n "$KEY" ]; then
+            echo "::add-mask::$KEY"
+            [ -n "$PW" ] && echo "::add-mask::$PW"
+            echo "key=$KEY" >> "$GITHUB_OUTPUT"
+            echo "pw=$PW" >> "$GITHUB_OUTPUT"
+            echo "have_key=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "have_key=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::No TAURI_SIGNING_PRIVATE_KEY set — building UNSIGNED. The desktop auto-update (latest.json) will be skipped for this release."
+          fi
+
+      - name: Build Tauri app (signed)
+        if: steps.signing.outputs.have_key == 'true'
         working-directory: frontend
         run: npm run tauri build
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ steps.signing.outputs.key }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ steps.signing.outputs.pw }}
+
+      - name: Build Tauri app (unsigned)
+        if: steps.signing.outputs.have_key == 'false'
+        working-directory: frontend
+        # Turn off updater artifacts so the build doesn't demand a signing key.
+        run: npm run tauri build -- --config "{\"bundle\":{\"createUpdaterArtifacts\":false}}"
 
       # ─── Publish release ─────────────────────────────────────────────
       - name: Find installer
