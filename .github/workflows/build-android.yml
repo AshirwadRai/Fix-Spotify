@@ -68,12 +68,18 @@ jobs:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: |
+          # Strip whitespace the secrets may carry (a trailing newline from
+          # `cat file | clip` is common and silently corrupts both the base64
+          # keystore and the password). base64 is whitespace-free; the store
+          # password 'fixspotify' has none either, so this only removes noise.
+          KEYSTORE_B64=$(printf '%s' "$KEYSTORE_B64" | tr -d '[:space:]')
+          KEYSTORE_PASSWORD=$(printf '%s' "$KEYSTORE_PASSWORD" | tr -d '\r\n')
           if [ -z "$KEYSTORE_B64" ]; then
             echo "::warning::No ANDROID_KEYSTORE_B64 secret — falling back to the debug key."
             echo "This APK will NOT be able to update a properly-signed install."
             exit 0
           fi
-          echo "$KEYSTORE_B64" | base64 -d > mobile/android/app/fixspotify-release.jks
+          printf '%s' "$KEYSTORE_B64" | base64 -d > mobile/android/app/fixspotify-release.jks
           cat > mobile/android/app/keystore.properties <<EOF
           storeFile=fixspotify-release.jks
           storePassword=$KEYSTORE_PASSWORD
