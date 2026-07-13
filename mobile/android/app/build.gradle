@@ -141,14 +141,11 @@ chaquopy {
             install "mutagen==1.47.0"
 
             // yt-dlp is pure Python and is what SoundCloud extraction runs on.
-            // SoundCloud needs no JS runtime; YouTube does, and gets one from the
-            // WebView V8 when the experimental toggle is on.
+            // It does NOT do YouTube here: that needs a JS runtime Android has
+            // no Deno for. YouTube goes through NewPipeExtractor instead
+            // (YouTubeNP.kt), so yt-dlp-ejs — the JS-challenge solver bundle —
+            // is no longer installed.
             install "yt-dlp>=2026.7.4"
-
-            // The YouTube JS-challenge solver bundle. Pure JS/Python, runtime-
-            // agnostic — webview_jcp feeds it to the WebView's V8. Only used when
-            // experimental YouTube is enabled.
-            install "yt-dlp-ejs>=0.8.0"
         }
 
         // Skipping .pyc precompilation keeps build times sane; first import is
@@ -170,17 +167,21 @@ dependencies {
     // MediaSessionCompat -> the lock-screen / notification transport controls
     // that navigator.mediaSession in the WebView drives.
     implementation 'androidx.media:media:1.7.0'
-    // EXPERIMENTAL YouTube: yt-dlp needs a real JS engine to solve YouTube's
-    // signature challenge (Google made this mandatory in late 2025). Deno — what
-    // the desktop bundles — has no Android build. QuickJS DOES, and it is an
-    // officially supported yt-dlp runtime, so the solver is tested against it.
+    // YouTube on Android = NewPipeExtractor (the engine behind the NewPipe app).
     //
-    // NOT app.cash.quickjs: that wraps a 2019-era QuickJS which cannot parse the
-    // modern (ES2020+) solver script — the exact "couldn't solve a YouTube
-    // challenge" failure seen on-device. This wrapper ships quickjs-ng (current,
-    // actively maintained), prebuilt for every ABI. JsEngine.kt drives it
-    // in-process. See mobile/python/webview_jcp.py.
-    implementation 'wang.harlon.quickjs:wrapper-android:3.2.3'
+    // Three attempts to make yt-dlp work here all died on the same wall: since
+    // late 2025 YouTube requires a JS runtime to solve the signature + throttling
+    // ("n") challenge, and Android has no Deno. A hidden WebView wasn't a
+    // supported yt-dlp target; app.cash.quickjs shipped a 2019 engine that can't
+    // parse the modern solver; quickjs-ng still left us bolting a JS engine into
+    // yt-dlp's provider framework and hoping.
+    //
+    // NewPipeExtractor solves the SAME problem natively: it bundles its own Rhino
+    // JS engine and does signature/throttling deobfuscation internally. Pure
+    // Java, no Python, no cookies, and it's battle-tested by NewPipe's userbase
+    // (v0.26.3 already ships SABR workarounds). GPLv3 — and so is this repo, so
+    // it is licence-compatible. See YouTubeNP.kt + mobile/python/newpipe_yt.py.
+    implementation 'com.github.TeamNewPipe:NewPipeExtractor:v0.26.3'
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

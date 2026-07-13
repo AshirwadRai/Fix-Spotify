@@ -343,27 +343,10 @@ function StorageSection() {
 function YouTubeExperimentalToggle() {
   const [state, setState] = useState(null);   // { supported, enabled }
   const [busy, setBusy] = useState(false);
-  const [cookies, setCookies] = useState(false);
 
   useEffect(() => {
     api.getYouTubeExperimental().then(setState).catch(() => setState({ supported: false, enabled: false }));
-    api.getYouTubeCookies().then((r) => setCookies(!!r.present));
   }, []);
-
-  // Read the picked cookies.txt in the WebView and hand the text to the backend.
-  const importCookies = async (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
-    try {
-      const content = await file.text();
-      const res = await api.setYouTubeCookies(content);
-      if (res.ok) { setCookies(true); toast('YouTube cookies imported'); }
-      else toast(res.error || 'Could not use that file');
-    } catch {
-      toast('Could not read that file');
-    }
-  };
 
   if (!isAndroid() || !state) return null;
 
@@ -395,8 +378,8 @@ function YouTubeExperimentalToggle() {
             {busy
               ? 'Checking your device…'
               : state.supported
-                ? 'Solves YouTube’s challenge on-device with a built-in JS engine. May be slower.'
-                : 'The JS engine could not start on this device.'}
+                ? 'Adds YouTube as a source. No sign-in needed. May be slower than JioSaavn.'
+                : 'The YouTube extractor could not start on this device.'}
           </p>
         </div>
         <button
@@ -417,30 +400,6 @@ function YouTubeExperimentalToggle() {
         </button>
       </div>
 
-      {/* cookies.txt — the auth fallback for "confirm you're not a bot". */}
-      {state.supported && (
-        <div className="mt-3 flex items-center justify-between gap-3">
-          <p className="text-[12px] text-spotify-text-subdued leading-snug">
-            {cookies
-              ? 'Signed-in cookies imported — used when YouTube asks for a login.'
-              : 'If YouTube blocks playback, export cookies.txt from a browser signed in to YouTube (on a PC) and import it here.'}
-          </p>
-          {cookies ? (
-            <button
-              type="button"
-              onClick={async () => { await api.setYouTubeCookies(''); setCookies(false); toast('Cookies removed'); }}
-              className="tap shrink-0 rounded-full bg-white/10 px-3 py-1.5 text-[12px]"
-            >
-              Remove
-            </button>
-          ) : (
-            <label className="tap shrink-0 cursor-pointer rounded-full bg-white/10 px-3 py-1.5 text-[12px]">
-              Import cookies.txt
-              <input type="file" accept=".txt,text/plain" className="sr-only" onChange={importCookies} />
-            </label>
-          )}
-        </div>
-      )}
     </div>
   );
 }

@@ -14,6 +14,8 @@ dependencyResolutionManagement {
         google()
         mavenCentral()
         maven { url = uri("https://chaquo.com/maven") }
+        // NewPipeExtractor (YouTube extraction) is published on JitPack only.
+        maven { url = uri("https://jitpack.io") }
     }
 }
 

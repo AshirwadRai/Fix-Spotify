@@ -86,8 +86,8 @@ from components.metadata_enricher import MetadataEnricher
 _DISABLED_SOURCES = {SourceType.YOUTUBE, SourceType.YOUTUBE_MUSIC}
 _original_get_client = UnifiedSearchService._get_client
 
-# EXPERIMENTAL: YouTube via the WebView V8 (webview_jcp). Off unless the user
-# enables it in Settings AND an on-device self-test passes. While False the
+# YouTube via NewPipeExtractor (newpipe_yt). Off unless the user enables it in
+# Settings AND an on-device self-test resolves a real stream. While False the
 # kill-switch below is fully active and behaviour is identical to a build that
 # never had this code — the default JioSaavn/SoundCloud path is untouched.
 _youtube_enabled = False
@@ -105,27 +105,46 @@ def _drop_yt_client():
             _search_service._clients.pop(st, None)
 
 
+class _NewPipeYouTubeClient:
+    """Drop-in for YouTubeClient, backed by NewPipeExtractor instead of yt-dlp.
+
+    unified_search only ever calls `.search(query, limit)` and reads `.to_dict()`
+    off each hit, so duck-typing YouTubeTrack's shape is the whole contract — no
+    change to components/unified_search.py.
+    """
+
+    def search(self, query: str, limit: int = 10):
+        import newpipe_yt
+        from components.youtube_downloader import YouTubeTrack
+
+        out = []
+        for r in newpipe_yt.search(query, limit):
+            url = r.get("url") or ""
+            if not url:
+                continue
+            out.append(
+                YouTubeTrack(
+                    # The watch URL is the id we resolve a stream from later.
+                    id=url.rsplit("v=", 1)[-1],
+                    title=r.get("title") or "",
+                    artist=r.get("artist") or "",
+                    uploader=r.get("artist") or "",
+                    url=url,
+                    duration_ms=int(r.get("duration_ms") or 0) or None,
+                    thumbnail=r.get("artwork") or None,
+                    is_music=True,
+                )
+            )
+        return out
+
+
 def _get_client_no_youtube(self, source_type):
     if source_type in _DISABLED_SOURCES:
         if not _youtube_enabled:
             return None
         with self._clients_lock:
             if source_type not in self._clients:
-                from components.youtube_downloader import YouTubeClient
-
-                class _MobileYT(YouTubeClient):
-                    # The desktop opts enable deno/node runtimes; mobile's JS
-                    # engine registers as "webview" and non-default runtimes
-                    # must be explicitly enabled or yt-dlp won't use them.
-                    def _get_base_ydl_opts(self, *a, **kw):
-                        o = super()._get_base_ydl_opts(*a, **kw)
-                        o.setdefault("js_runtimes", {})["webview"] = {}
-                        return o
-
-                ck = _yt_cookies_path()
-                self._clients[source_type] = _MobileYT(
-                    cookies_file=ck if os.path.exists(ck) else None
-                )
+                self._clients[source_type] = _NewPipeYouTubeClient()
             return self._clients[source_type]
     return _original_get_client(self, source_type)
 
@@ -278,8 +297,15 @@ def _clean_artwork_urls(artwork_urls: Dict[str, Any]) -> Dict[str, str]:
 
 
 def _resolve_stream_url(url: str, source: str, bitrate: int = 320) -> Optional[str]:
-    """Resolve a source page URL into a direct, playable stream URL.
-    YouTube is intentionally absent — it cannot be resolved without a JS runtime."""
+    """Resolve a source page URL into a direct, playable stream URL."""
+    if source in ("youtube", "youtube_music"):
+        # NewPipeExtractor returns a URL with the signature and throttling
+        # parameter already solved, so it plays directly. yt-dlp cannot do this
+        # on Android (no JS runtime) — see mobile/python/newpipe_yt.py.
+        import newpipe_yt
+
+        info = newpipe_yt.stream_url(url)
+        return info.get("url") if info else None
     if source == "jiosaavn":
         from components.jiosaavn_downloader import JioSaavnClient
         # JioSaavn serves discrete bitrates only: 320 / 160 / 96.
@@ -1330,14 +1356,14 @@ def youtube_disconnect():
     return jsonify({"connected": False})
 
 
-# ─── EXPERIMENTAL: YouTube via the WebView V8 ─────────────────────────────────
+# ─── YouTube via NewPipeExtractor ─────────────────────────────────────────────
 @app.get("/api/youtube/experimental")
 def youtube_experimental_status():
-    """Report whether the device can even host a JS engine, and whether YouTube
-    is currently enabled. Cheap — no extraction — so Settings can show it live."""
+    """Report whether YouTube extraction is available on this device, and whether
+    it is currently enabled. Cheap — no extraction — so Settings shows it live."""
     try:
-        import webview_jcp
-        supported = webview_jcp.is_supported()
+        import newpipe_yt
+        supported = newpipe_yt.is_supported()
     except Exception:
         supported = False
     return jsonify({
@@ -1368,20 +1394,21 @@ def youtube_experimental_toggle():
         return jsonify({"enabled": False, "ok": True})
 
     try:
-        import webview_jcp
-        webview_jcp.COOKIES_FILE = _yt_cookies_path()  # auth fallback, if imported
-        if not webview_jcp.is_supported():
+        import newpipe_yt
+        if not newpipe_yt.is_supported():
             return jsonify({"enabled": False, "ok": False,
-                            "error": "The built-in JS engine could not start on "
+                            "error": "The YouTube extractor could not start on "
                                      "this device."}), 200
-        passed = webview_jcp.self_test()
+        # Resolves a REAL audio URL — the step that needs the signature and
+        # throttling deobfuscation. Searching alone would prove nothing.
+        passed = newpipe_yt.self_test()
     except Exception as e:
         return jsonify({"enabled": False, "ok": False, "error": str(e)}), 200
 
     if not passed:
         return jsonify({"enabled": False, "ok": False,
-                        "error": "Couldn't solve a YouTube challenge on this device. "
-                                 "Leaving YouTube off."}), 200
+                        "error": "Couldn't get a playable YouTube stream on this "
+                                 "device. Leaving YouTube off."}), 200
 
     _youtube_enabled = True
     PLAYABLE_SEARCH_SOURCES.add(SourceType.YOUTUBE)
@@ -1469,13 +1496,13 @@ def _warm_up():
     global _youtube_enabled
     try:
         if android_env.read_settings().get("youtube_experimental"):
-            import webview_jcp
-            if webview_jcp.is_supported() and webview_jcp.install():
+            import newpipe_yt
+            if newpipe_yt.is_supported():
                 _youtube_enabled = True
                 PLAYABLE_SEARCH_SOURCES.add(SourceType.YOUTUBE)
-                print("[backend] experimental YouTube restored")
+                print("[backend] YouTube restored")
     except Exception as e:
-        print(f"[backend] experimental YouTube restore skipped: {e}")
+        print(f"[backend] YouTube restore skipped: {e}")
 
 
 def start_server(files_dir: str, downloads_dir: str, web_dir: str,
