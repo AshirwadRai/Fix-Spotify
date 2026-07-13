@@ -1203,31 +1203,11 @@ def enrich_batch():
 # JioSaavn/SoundCloud so it becomes playable here.
 #
 # Spotify fetch (URL parsing + embed scrape) lives in components/spotify_import.py.
-from components.spotify_import import parse_url as parse_spotify_url, fetch_tracklist as _spotify_tracklist
-
-
-def _title_artist_ok(item: Dict[str, str], track) -> bool:
-    """Reject a match that is merely the NEAREST hit rather than the right song.
-
-    Spotify import used to keep the first result unconditionally, so a cover or a
-    same-titled different song slipped in. Require the title to genuinely match
-    AND at least one Spotify artist to appear in the candidate's credit — the two
-    things a wrong song fails.
-    """
-    from components.fuzz_compat import fuzz
-
-    def norm(s):
-        return re.sub(r"[^\w\s]", " ", (s or "").lower()).strip()
-
-    if fuzz.token_set_ratio(norm(item["title"]), norm(getattr(track, "title", ""))) < 82:
-        return False
-    cand_artist = norm(getattr(track, "artist", ""))
-    # Any one credited Spotify artist present in the candidate's artist string.
-    for a in re.split(r"[,&/]| x |feat| ft ", norm(item["artist"])):
-        a = a.strip()
-        if a and (a in cand_artist or fuzz.partial_ratio(a, cand_artist) >= 88):
-            return True
-    return False
+from components.spotify_import import (
+    parse_url as parse_spotify_url,
+    fetch_tracklist as _spotify_tracklist,
+    is_good_match as _title_artist_ok,   # title + artist + duration gate
+)
 
 
 def _match_track(item: Dict[str, str]) -> Optional[Dict[str, Any]]:

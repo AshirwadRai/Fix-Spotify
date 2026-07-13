@@ -1143,7 +1143,10 @@ async def get_lyrics(
 
             def _js_get(params):
                 url = f"{_js_base}?{_ul.urlencode({**params, '_format': 'json', '_marker': '0', 'ctx': 'web6dot0'})}"
-                r = requests.get(url, headers=_js_headers, timeout=8)
+                # main.py imports requests AS http_requests — a bare `requests`
+                # here was a latent NameError that killed this lyrics fallback
+                # every time it ran.
+                r = http_requests.get(url, headers=_js_headers, timeout=8)
                 return r.json() if r.status_code == 200 else {}
 
             # Find song ID via autocomplete
@@ -1462,8 +1465,7 @@ async def spotify_import(url: str = Query(...)):
     same behaviour the mobile app has. Each Spotify (title, artist) is matched
     on JioSaavn/SoundCloud with a title+artist floor so a cover or a same-named
     wrong song is dropped (reported in `missing`) rather than played."""
-    from components.spotify_import import parse_url, fetch_tracklist
-    from components.fuzz_compat import fuzz
+    from components.spotify_import import parse_url, fetch_tracklist, is_good_match as _ok
 
     kind, sid = parse_url(url)
     if not kind:
@@ -1472,19 +1474,6 @@ async def spotify_import(url: str = Query(...)):
     meta = await asyncio.to_thread(fetch_tracklist, kind, sid)
     if not meta:
         return {"error": "Could not read that playlist — is it public?"}
-
-    def _norm(s):
-        return re.sub(r"[^\w\s]", " ", (s or "").lower()).strip()
-
-    def _ok(item, track):
-        if fuzz.token_set_ratio(_norm(item["title"]), _norm(getattr(track, "title", ""))) < 82:
-            return False
-        cand = _norm(getattr(track, "artist", ""))
-        for a in re.split(r"[,&/]| x |feat| ft ", _norm(item["artist"])):
-            a = a.strip()
-            if a and (a in cand or fuzz.partial_ratio(a, cand) >= 88):
-                return True
-        return False
 
     def _match(item):
         try:

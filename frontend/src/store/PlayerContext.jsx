@@ -170,7 +170,16 @@ export function PlayerProvider({ children }) {
   // Throttle for persisting resume state during playback (localStorage write).
   const lastSaveRef = useRef(0);
 
-  useEffect(() => { repeatRef.current = repeat; }, [repeat]);
+  // Repeat-one is enforced by the AUDIO ELEMENT, not by our 'ended' handler.
+  // Native looping is seamless and — crucially — authoritative: with loop set,
+  // 'ended' never fires, so nothing downstream (crossfade, autoplay-radio,
+  // shuffle, a stale playNext) can steal the track away mid-repeat. That race
+  // is why repeat-one skipped to the next song, and why it only "worked" after
+  // manually changing tracks (which re-synced the listener's closure).
+  useEffect(() => {
+    repeatRef.current = repeat;
+    audioRef.current.loop = repeat === 'one';
+  }, [repeat]);
   useEffect(() => { volumeRef.current = volume; }, [volume]);
   useEffect(() => { currentTrackRef.current = currentTrack; }, [currentTrack]);
   useEffect(() => { queueRef.current = queue; }, [queue]);
@@ -676,7 +685,9 @@ export function PlayerProvider({ children }) {
   useEffect(() => {
     if (!currentTrack) return;
     if (queue.length >= 3) return;
-    if (repeat === 'all') return;
+    // repeat-one loops this song forever — nothing "next" is ever needed, so
+    // don't fetch radio picks for a queue that will never be reached.
+    if (repeat === 'all' || repeat === 'one') return;
     if (!readAppSettings().autoplay) return;
     if (radioLoadingRef.current) return;
     radioLoadingRef.current = true;
@@ -990,12 +1001,11 @@ export function PlayerProvider({ children }) {
   const addToQueue = useCallback((track) => {
     const playableTrack = normalizeTrack(track);
     if (!isPlayableOrOffline(playableTrack)) return;
-    // Insert before the first autoplay/radio track so manual picks play first.
-    setQueue(q => {
-      const idx = q.findIndex(t => t._autoplay);
-      if (idx === -1) return [...q, playableTrack];
-      return [...q.slice(0, idx), playableTrack, ...q.slice(idx)];
-    });
+    // A song the user deliberately queued plays NEXT — it goes to the FRONT,
+    // ahead of everything, including songs queued earlier from the same list.
+    // (It used to land merely ahead of the radio picks, i.e. behind the whole
+    // rest of the album, which felt like the tap had done nothing.)
+    setQueue(q => [playableTrack, ...q.filter(t => getTrackId(t) !== getTrackId(playableTrack))]);
   }, []);
 
   const addNext = useCallback((track) => {

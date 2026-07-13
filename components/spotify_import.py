@@ -72,7 +72,14 @@ def fetch_tracklist(kind: str, sid: str):
     for it in entity.get("trackList") or []:
         title = _norm_ws(it.get("title"))
         if title:
-            tracks.append({"title": title, "artist": _norm_ws(it.get("subtitle"))})
+            tracks.append({
+                "title": title,
+                "artist": _norm_ws(it.get("subtitle")),
+                # Spotify's real length. Kept because it is the ONLY way to
+                # reject a 29-second snippet/preview upload that happens to
+                # carry the right title and artist.
+                "duration_ms": it.get("duration") or 0,
+            })
 
     # A single track has no trackList — the entity IS the song.
     if kind == "track" and not tracks:
@@ -80,7 +87,11 @@ def fetch_tracklist(kind: str, sid: str):
             a.get("name", "") for a in entity.get("artists") or [] if a.get("name")
         ) or _norm_ws(entity.get("subtitle"))
         if entity.get("name"):
-            tracks.append({"title": _norm_ws(entity["name"]), "artist": _norm_ws(artist)})
+            tracks.append({
+                "title": _norm_ws(entity["name"]),
+                "artist": _norm_ws(artist),
+                "duration_ms": entity.get("duration") or 0,
+            })
 
     cover = ""
     try:
@@ -90,6 +101,43 @@ def fetch_tracklist(kind: str, sid: str):
 
     name = entity.get("name") or entity.get("title") or "Spotify playlist"
     return {"name": _norm_ws(name), "tracks": tracks, "image": cover}
+
+
+def is_good_match(item, track) -> bool:
+    """Is `track` (a search hit) genuinely the Spotify song `item`?
+
+    ONE predicate, used by both the desktop (api/main.py) and mobile
+    (mobile/python/mobile_server.py) importers — they had separate copies, so a
+    fix to one silently left the other broken.
+
+    Three gates, all of which a wrong song fails:
+      title    — token-set similarity, tolerant of "(Remastered)" noise
+      artist   — at least one credited Spotify artist appears in the candidate
+      duration — within 25% of Spotify's length. This is what rejects the
+                 29-second snippet uploads that carry a correct title+artist
+                 and were being imported as if they were the full song.
+    """
+    from components.fuzz_compat import fuzz
+
+    def norm(s):
+        return re.sub(r"[^\w\s]", " ", (s or "").lower()).strip()
+
+    if fuzz.token_set_ratio(norm(item["title"]), norm(getattr(track, "title", ""))) < 82:
+        return False
+
+    want = int(item.get("duration_ms") or 0)
+    got = int(getattr(track, "duration_ms", 0) or 0)
+    # Only judge when BOTH lengths are known — never drop a song just because a
+    # source omitted its duration.
+    if want > 0 and got > 0 and abs(got - want) > max(want * 0.25, 20_000):
+        return False
+
+    cand_artist = norm(getattr(track, "artist", ""))
+    for a in re.split(r"[,&/]| x |feat| ft ", norm(item["artist"])):
+        a = a.strip()
+        if a and (a in cand_artist or fuzz.partial_ratio(a, cand_artist) >= 88):
+            return True
+    return False
 
 
 if __name__ == "__main__":

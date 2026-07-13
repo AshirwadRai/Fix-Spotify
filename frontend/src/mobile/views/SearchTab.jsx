@@ -123,9 +123,10 @@ export function SearchTab({ onMenu, onOpenArtist, onOpenAlbum, onImportSpotify }
     sugIdRef.current++;
   };
 
-  // Show the dropdown only while the user is actively typing into a focused box
-  // and hasn't yet committed a search — never over a results list.
-  const showSuggestions = focused && suggestions.length > 0 && !loading;
+  // Show the dropdown whenever the focused box has hints for what's typed.
+  // `loading` is deliberately NOT a condition: a still-resolving earlier search
+  // would otherwise suppress the hints for the query being typed right now.
+  const showSuggestions = focused && suggestions.length > 0;
 
   return (
     <div className="flex flex-col h-full">

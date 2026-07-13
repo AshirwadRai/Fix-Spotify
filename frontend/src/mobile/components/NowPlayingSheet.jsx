@@ -339,7 +339,9 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
             onTouchEnd={onQueueTouchEnd}
           >
             <p className="text-xs uppercase tracking-wider text-white/60 mb-2 px-1">
-              Next up · hold <Menu size={11} className="inline -mt-0.5" /> to reorder
+              {queue.some((t) => !t._autoplay)
+                ? <>Next up · hold <Menu size={11} className="inline -mt-0.5" /> to reorder</>
+                : 'Recommended'}
             </p>
             {queue.length === 0 && (
               <p className="text-white/50 text-sm px-1 py-4">
@@ -362,9 +364,16 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
                 else if (dragFrom > dragOver && i >= dragOver && i < dragFrom) shift = ROW_H;
               }
               const isDragged = dragFrom === i;
+              // Where the songs YOU queued end and the autoplay picks begin.
+              const startsRecommended = !!t._autoplay && (i === 0 || !queue[i - 1]?._autoplay);
               return (
+              <div key={`${t.title}-${i}`} data-qgroup>
+              {startsRecommended && i > 0 && (
+                <p className="text-xs uppercase tracking-wider text-white/60 mt-4 mb-2 px-1">
+                  Recommended
+                </p>
+              )}
               <div
-                key={`${t.title}-${i}`}
                 data-qidx={i}
                 style={isDragged
                   ? { transform: `translateY(${dragDy}px) scale(1.02)`, zIndex: 5, position: 'relative', pointerEvents: 'none' }
@@ -396,6 +405,7 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
                 >
                   <Menu size={18} />
                 </button>
+              </div>
               </div>
               );
             })}

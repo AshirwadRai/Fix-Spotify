@@ -49,16 +49,18 @@ class ApiClient {
    */
   async getSuggestions(query, limit = 8) {
     if (query.length < 2) return { suggestions: [] };
-
-    const response = await fetch(
-      apiUrl(`/search/suggestions?q=${encodeURIComponent(query)}&limit=${limit}`)
-    );
-
-    if (!response.ok) {
-      throw new Error(`Suggestions failed: ${response.statusText}`);
+    // Autocomplete is a HINT, never an error condition: a transient non-200 (or
+    // a dropped connection mid-keystroke) used to throw, which the caller turned
+    // into "no suggestions at all". Degrade to empty instead.
+    try {
+      const response = await fetch(
+        apiUrl(`/search/suggestions?q=${encodeURIComponent(query)}&limit=${limit}`)
+      );
+      if (!response.ok) return { suggestions: [] };
+      return await response.json();
+    } catch {
+      return { suggestions: [] };
     }
-
-    return response.json();
   }
 
   /**
