@@ -16,18 +16,18 @@ import re
 import requests
 
 _URL_RE = re.compile(
-    r"open\.spotify\.com/(?:intl-[a-z]{2}/)?(playlist|album)/([A-Za-z0-9]+)"
+    r"open\.spotify\.com/(?:intl-[a-z]{2}/)?(playlist|album|track)/([A-Za-z0-9]+)"
 )
 
 
 def parse_url(url: str):
-    """-> (kind, id) for a Spotify playlist/album URL or URI, else (None, None)."""
+    """-> (kind, id) for a Spotify playlist/album/track URL or URI, else (None, None)."""
     if not url:
         return None, None
     m = _URL_RE.search(url)
     if m:
         return m.group(1), m.group(2)
-    m = re.match(r"spotify:(playlist|album):([A-Za-z0-9]+)", url.strip())
+    m = re.match(r"spotify:(playlist|album|track):([A-Za-z0-9]+)", url.strip())
     if m:
         return m.group(1), m.group(2)
     return None, None
@@ -73,6 +73,14 @@ def fetch_tracklist(kind: str, sid: str):
         title = _norm_ws(it.get("title"))
         if title:
             tracks.append({"title": title, "artist": _norm_ws(it.get("subtitle"))})
+
+    # A single track has no trackList — the entity IS the song.
+    if kind == "track" and not tracks:
+        artist = ", ".join(
+            a.get("name", "") for a in entity.get("artists") or [] if a.get("name")
+        ) or _norm_ws(entity.get("subtitle"))
+        if entity.get("name"):
+            tracks.append({"title": _norm_ws(entity["name"]), "artist": _norm_ws(artist)})
 
     cover = ""
     try:

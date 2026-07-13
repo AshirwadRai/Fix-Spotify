@@ -119,8 +119,17 @@ export function PlayerProvider({ children }) {
   const [duration, setDuration] = useState(0);
   const [queue, setQueue] = useState([]);
   const [history, setHistory] = useState([]); // tracks we've already played
-  const [shuffle, setShuffle] = useState(false);
-  const [repeat, setRepeat] = useState('off'); // 'off' | 'all' | 'one'
+  // Shuffle/repeat SURVIVE a restart — without this, repeat-one set yesterday
+  // silently reset to 'off' on reopen ("replay doesn't work when the app opens").
+  const [shuffle, setShuffle] = useState(() => {
+    try { return !!JSON.parse(localStorage.getItem('playbackModes') || '{}').shuffle; } catch { return false; }
+  });
+  const [repeat, setRepeat] = useState(() => {  // 'off' | 'all' | 'one'
+    try { return JSON.parse(localStorage.getItem('playbackModes') || '{}').repeat || 'off'; } catch { return 'off'; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('playbackModes', JSON.stringify({ shuffle, repeat })); } catch { /* full */ }
+  }, [shuffle, repeat]);
   const [streamQuality, setStreamQuality] = useState(null); // { bitrate, codec }
   
   const audioRef = useRef(new Audio());

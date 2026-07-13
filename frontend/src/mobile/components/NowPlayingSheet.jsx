@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import {
-  ChevronDown, Play, Pause, SkipBack, SkipForward, Shuffle, Repeat, Repeat1,
+  ChevronDown, Play, Pause, SkipBack, SkipForward, Shuffle, Repeat2, Repeat1,
   Heart, ArrowDownCircle, ListMusic, Mic2, Disc3, Check, Menu, Bluetooth,
   MoreVertical, ListPlus,
 } from 'lucide-react';
@@ -346,18 +346,32 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
                 Nothing queued. Autoplay will keep the music going when this ends.
               </p>
             )}
-            {queue.map((t, i) => (
+            {queue.map((t, i) => {
+              // Everything the drag needs, computed per row:
+              //  - the picked-up row follows the finger AND ignores pointer
+              //    events, so elementFromPoint can see the row underneath it
+              //    (with events on, it always found ITSELF → dragOver never
+              //    changed → the drop "snapped back").
+              //  - rows between the pickup point and the finger slide out of
+              //    the way (one row-height), opening the gap where the song
+              //    will land.
+              const ROW_H = 60;
+              let shift = 0;
+              if (dragFrom !== null && dragOver !== null && i !== dragFrom) {
+                if (dragFrom < dragOver && i > dragFrom && i <= dragOver) shift = -ROW_H;
+                else if (dragFrom > dragOver && i >= dragOver && i < dragFrom) shift = ROW_H;
+              }
+              const isDragged = dragFrom === i;
+              return (
               <div
                 key={`${t.title}-${i}`}
                 data-qidx={i}
-                // The picked-up row tracks the finger live (translateY) and
-                // floats above the list; on release it settles into place.
-                style={dragFrom === i ? { transform: `translateY(${dragDy}px) scale(1.02)`, zIndex: 5, position: 'relative' } : undefined}
+                style={isDragged
+                  ? { transform: `translateY(${dragDy}px) scale(1.02)`, zIndex: 5, position: 'relative', pointerEvents: 'none' }
+                  : { transform: `translateY(${shift}px)`, transition: 'transform 180ms cubic-bezier(0.22,0.61,0.36,1)' }}
                 className={`flex items-center gap-2 rounded-2xl px-1 ${
-                  dragFrom === i
-                    ? 'bg-spotify-elevated-highlight shadow-xl'
-                    : 'transition-[background-color,transform] duration-fast ease-soft'
-                } ${dragOver === i && dragFrom !== null && dragFrom !== i ? 'bg-white/15' : ''}`}
+                  isDragged ? 'bg-spotify-elevated-highlight shadow-xl' : ''
+                }`}
               >
                 <button
                   type="button"
@@ -383,7 +397,8 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
                   <Menu size={18} />
                 </button>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -536,7 +551,8 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
             onClick={cycleRepeat}
             className={`tap p-2 ${repeat !== 'off' ? 'text-spotify-essential-bright-accent' : 'text-white/60'}`}
           >
-            {repeat === 'one' ? <Repeat1 size={24} /> : <Repeat size={24} />}
+            {/* Replay-style loop icon; second tap shows the "1". */}
+            {repeat === 'one' ? <Repeat1 size={24} /> : <Repeat2 size={24} />}
           </button>
         </div>
 

@@ -7,6 +7,7 @@ import { useRecentSearches, addRecentSearch, removeRecentSearch } from '../../ut
 import { usePlayer } from '../../store/PlayerContext';
 import { usePlayFrom } from '../usePlayFrom';
 import { isSpotifyUrl } from '../components/SpotifyImportSheet';
+import { toast } from '../../utils/toast';
 
 export function SearchTab({ onMenu, onOpenArtist, onOpenAlbum, onImportSpotify }) {
   const [query, setQuery] = useState('');
@@ -52,6 +53,19 @@ export function SearchTab({ onMenu, onOpenArtist, onOpenAlbum, onImportSpotify }
     if (isSpotifyUrl(term)) {
       inputRef.current?.blur();
       onImportSpotify(term);
+      return;
+    }
+    // A single TRACK link resolves to "title artist" and searches normally.
+    if (/open\.spotify\.com\/(?:intl-[a-z]{2}\/)?track\//i.test(term) || /^spotify:track:/i.test(term)) {
+      const res = await api.importSpotify(term).catch(() => null);
+      const t = res?.tracks?.[0];
+      if (t) {
+        const q2 = `${cleanText(t.title)} ${cleanText(t.artist)}`.trim();
+        setQuery(q2);
+        runSearch(q2);
+      } else {
+        toast('Could not read that Spotify link');
+      }
       return;
     }
 

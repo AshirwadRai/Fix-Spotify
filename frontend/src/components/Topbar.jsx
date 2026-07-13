@@ -143,6 +143,19 @@ export function Topbar({ onSearch, activeView, onNavigate, resetToken, canGoBack
       importSpotify(term);
       return;
     }
+    // A single TRACK link: resolve it to "title artist" and run a normal
+    // search — pasting a song link used to text-search the raw URL and return
+    // garbage results named after the URL itself.
+    if (/open\.spotify\.com\/(intl-[a-z]+\/)?track\//.test(term) || /^spotify:track:/.test(term)) {
+      toast('Looking that song up…');
+      api.importSpotify(term).then((res) => {
+        const t = res?.tracks?.[0];
+        const q = t ? `${t.title} ${t.artist}` : res?.name;
+        if (q) { setQuery(q); onSearch(q); }
+        else toast('Could not read that Spotify link');
+      }).catch(() => toast('Could not read that Spotify link'));
+      return;
+    }
     onSearch(term);
   };
 
