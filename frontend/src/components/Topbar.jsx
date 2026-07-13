@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { Search, X, Loader2, ChevronLeft, ChevronRight, Home } from 'lucide-react';
 import { cleanText } from '../utils/tracks';
 import { api } from '../api';
+import { toggleSaved, isSaved } from '../utils/collections';
+import { toast } from '../utils/toast';
 import { WindowControls } from './WindowControls';
 
 export function Topbar({ onSearch, activeView, onNavigate, resetToken, canGoBack, canGoForward, onBack, onForward }) {
@@ -100,6 +102,33 @@ export function Topbar({ onSearch, activeView, onNavigate, resetToken, canGoBack
     }
   };
 
+  // A pasted Spotify playlist/album link is an IMPORT, not a text search —
+  // resolve it to playable tracks, save it to the library, and open Library.
+  const importSpotify = async (url) => {
+    toast('Importing from Spotify…');
+    try {
+      const res = await api.importSpotify(url);
+      if (res?.error || !res?.tracks?.length) {
+        toast(res?.error || 'Could not import that Spotify link');
+        return;
+      }
+      if (!isSaved({ url })) {
+        toggleSaved({
+          type: 'jsplaylist',
+          name: res.name,
+          image: res.image,
+          url,
+          subtitle: `${res.matched} songs`,
+          tracks: res.tracks,
+        });
+      }
+      toast(`Imported “${res.name}” — ${res.matched} of ${res.total} songs`);
+      onNavigate?.('library');
+    } catch {
+      toast('Could not import that Spotify link');
+    }
+  };
+
   // Centralized search trigger — used by Enter, suggestion click, and the button
   const doSearch = (q) => {
     const term = (q ?? query).trim();
@@ -109,6 +138,11 @@ export function Topbar({ onSearch, activeView, onNavigate, resetToken, canGoBack
     setShowDropdown(false);
     setSuggestions([]);
     inputRef.current?.blur();
+    if (/open\.spotify\.com\/(intl-[a-z]+\/)?(playlist|album)\//.test(term) || /^spotify:(playlist|album):/.test(term)) {
+      setQuery('');
+      importSpotify(term);
+      return;
+    }
     onSearch(term);
   };
 

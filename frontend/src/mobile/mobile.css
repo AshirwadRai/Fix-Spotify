@@ -54,16 +54,25 @@
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-/* Mini-player title marquee. Holds at the start, drifts the overflow into view,
-   holds again, then snaps back — a calm loop, not a constant crawl. The scroll
-   distance is the element's own overflow, passed in as --marquee-shift. */
+/* Mini-player title marquee — ONE direction, like Spotify: hold, glide the
+   overflow left into view, hold at the end, then reset and repeat. Never
+   scrolls backwards. Distance = the element's own overflow (--marquee-shift). */
 @keyframes marquee-scroll {
-  0%, 12%   { transform: translateX(0); }
-  50%, 62%  { transform: translateX(var(--marquee-shift, 0)); }
-  100%      { transform: translateX(0); }
+  0%, 14%     { transform: translateX(0); }
+  64%, 86%    { transform: translateX(var(--marquee-shift, 0)); }
+  86.01%, 100% { transform: translateX(0); }
 }
 .marquee-run {
-  animation: marquee-scroll 9s ease-in-out infinite;
+  animation: marquee-scroll 10s linear infinite;
+}
+
+/* Double-tap seek arrows light up one after another (per-arrow delay in JSX). */
+@keyframes peekPulse {
+  0%, 100% { opacity: 0.25; }
+  35%      { opacity: 1; }
+}
+.peek-arrow {
+  animation: peekPulse 500ms ease-in-out infinite;
 }
 @media (prefers-reduced-motion: reduce) {
   .marquee-run { animation: none; }

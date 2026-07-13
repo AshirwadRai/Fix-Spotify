@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Heart, Download, ListPlus, FolderPlus, User, Disc3, Share2, Check, Trash2 } from 'lucide-react';
+import { Heart, Download, ListPlus, FolderPlus, User, Disc3, Check, Trash2 } from 'lucide-react';
 import { usePlayer } from '../../store/PlayerContext';
 import { useDownloads } from '../../store/DownloadsContext';
-import { getBestArtworkUrl, cleanText, shareTrack } from '../../utils/tracks';
+import { getBestArtworkUrl, cleanText } from '../../utils/tracks';
 import { isLiked, toggleLiked } from '../../utils/likes';
 import { isDownloaded, deleteDownload } from '../../utils/downloads';
 import { api } from '../../api';
@@ -63,7 +63,6 @@ export function TrackActionSheet({ track, onClose, onOpenArtist, onOpenAlbum, on
           onClick: () => onOpenAlbum({ name: track.album, artist: track.artist, type: 'album' }),
         }]
       : []),
-    { icon: Share2, label: 'Share', onClick: () => shareTrack(track) },
   ];
 
   return (

@@ -30,10 +30,11 @@ export function BottomNav({ active, onChange }) {
               aria-current={isActive ? 'page' : undefined}
               className="tap flex flex-1 flex-col items-center gap-1 py-2.5"
             >
+              {/* Active = BOLDER stroke, not a filled glyph (a solid blob read
+                  as a different icon). */}
               <Icon
                 size={23}
-                strokeWidth={isActive ? 2.3 : 1.9}
-                fill={isActive ? 'currentColor' : 'none'}
+                strokeWidth={isActive ? 2.6 : 1.8}
                 className={`transition-colors duration-fast ${
                   isActive ? 'text-white' : 'text-spotify-essential-subdued'
                 }`}

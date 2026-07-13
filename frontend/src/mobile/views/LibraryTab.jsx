@@ -5,7 +5,8 @@ import { useSavedCollections } from '../../utils/collections';
 import { useOfflineTracks } from '../../utils/downloads';
 import { usePlaylists, createPlaylist } from '../usePlaylists';
 import { PlaylistCover } from '../../components/PlaylistCover';
-import { cleanText } from '../../utils/tracks';
+import { cleanText, sameTrack } from '../../utils/tracks';
+import { usePlayer } from '../../store/PlayerContext';
 import { toast } from '../../utils/toast';
 
 const FILTERS = [
@@ -28,6 +29,7 @@ export function LibraryTab({ onOpenList, onOpenCollection }) {
   const liked = useLikedSongs();
   const collections = useSavedCollections();
   const playlists = usePlaylists();
+  const { currentTrack } = usePlayer();
 
   // useOfflineTracks() returns a MAP keyed by track id, not an array. Treating
   // it as a list silently rendered nothing.
@@ -68,24 +70,45 @@ export function LibraryTab({ onOpenList, onOpenCollection }) {
           </button>
         </div>
 
+        {/* Centered modal, Spotify-style: autoFocus pops the keyboard open. */}
         {creating && (
-          <form onSubmit={submitNew} className="px-4 pb-3 flex gap-2">
-            <input
-              autoFocus
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Playlist name"
-              enterKeyHint="done"
-              className="flex-1 min-w-0 h-11 px-4 rounded bg-white/10 text-white text-[15px] placeholder:text-white/40 outline-none"
-            />
-            <button
-              type="submit"
-              disabled={!name.trim()}
-              className="shrink-0 px-5 h-11 rounded-full bg-spotify-essential-bright-accent text-black text-[14px] font-semibold disabled:opacity-40"
+          <div
+            className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 px-8 animate-fade-in"
+            onClick={() => setCreating(false)}
+            role="presentation"
+          >
+            <form
+              onSubmit={submitNew}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-sm rounded-2xl bg-spotify-elevated-base p-5"
             >
-              Create
-            </button>
-          </form>
+              <p className="text-center text-[17px] font-bold">Name your playlist</p>
+              <input
+                autoFocus
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="My playlist"
+                enterKeyHint="done"
+                className="mt-4 w-full border-b-2 border-white/30 bg-transparent pb-2 text-center text-[18px] font-semibold text-white placeholder:text-white/30 outline-none focus:border-spotify-essential-bright-accent"
+              />
+              <div className="mt-5 flex justify-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setCreating(false)}
+                  className="tap px-5 py-2.5 rounded-full text-[14px] font-semibold text-white/70"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!name.trim()}
+                  className="tap px-6 py-2.5 rounded-full bg-spotify-essential-bright-accent text-black text-[14px] font-bold disabled:opacity-40"
+                >
+                  Create
+                </button>
+              </div>
+            </form>
+          </div>
         )}
 
         <div className="rail px-4 pb-3">
@@ -139,6 +162,9 @@ export function LibraryTab({ onOpenList, onOpenCollection }) {
                 <PlaylistCover tracks={p.tracks || []} image={p.image} size={56} />
               }
               title={p.name}
+              // Green title while a song from this playlist is playing — same
+              // signal a playing song row gives.
+              active={!!currentTrack && (p.tracks || []).some((t) => sameTrack(t, currentTrack))}
               subtitle={`Playlist · ${(p.tracks || []).length} songs`}
               onClick={() =>
                 onOpenList({
@@ -195,7 +221,7 @@ export function LibraryTab({ onOpenList, onOpenCollection }) {
 
 // `cover` is an escape hatch for a rendered element (the playlist mosaic);
 // `image` stays the simple URL path used by albums.
-function Row({ image, cover, Icon, gradient, filled, rounded, title, subtitle, onClick }) {
+function Row({ image, cover, Icon, gradient, filled, rounded, title, subtitle, active = false, onClick }) {
   return (
     <button
       type="button"
@@ -218,7 +244,7 @@ function Row({ image, cover, Icon, gradient, filled, rounded, title, subtitle, o
         ))}
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-[15px] truncate">{title}</p>
+        <p className={`text-[15px] truncate ${active ? 'text-spotify-essential-bright-accent' : ''}`}>{title}</p>
         <p className="text-[13px] text-spotify-text-subdued truncate">{subtitle}</p>
       </div>
       <ChevronRight size={18} className="text-spotify-essential-subdued shrink-0" />

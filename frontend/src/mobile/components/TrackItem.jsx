@@ -80,8 +80,8 @@ function TrackItemBase({
     <div className="relative overflow-hidden">
       {/* Reveal hint behind the row while swiping right. */}
       {dx > 8 && (
-        <div className="absolute inset-y-0 left-0 w-24 flex items-center justify-center gap-1 bg-spotify-essential-bright-accent text-black text-xs font-semibold">
-          <ListPlus size={16} /> Queue
+        <div className="absolute inset-y-0 left-0 w-24 flex items-center justify-center bg-spotify-essential-bright-accent text-black">
+          <ListPlus size={20} />
         </div>
       )}
 

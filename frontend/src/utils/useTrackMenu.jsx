@@ -1,12 +1,12 @@
 import { useState, useCallback, useRef } from 'react';
-import { Heart, Plus, Music, ListPlus, ListStart, Download, Check, Share2 } from 'lucide-react';
+import { Heart, Plus, Music, ListPlus, ListStart, Download, Check } from 'lucide-react';
 import { ContextMenu } from '../components/ContextMenu';
 import { usePlayer } from '../store/PlayerContext';
 import { useDownloads } from '../store/DownloadsContext';
 import { isDownloaded } from './downloads';
 import { isLiked as isLikedStore, toggleLiked } from './likes';
 import {
-  cleanText, normalizeTrack, readPlaylists, writePlaylists, shareTrack, goToMenuItems,
+  cleanText, normalizeTrack, readPlaylists, writePlaylists, goToMenuItems,
 } from './tracks';
 
 /**
@@ -97,7 +97,6 @@ export function useTrackMenu({ onLibraryChange, onOpenArtist, onOpenAlbum } = {}
         onClick: () => toggleLike(track),
       },
       ...goToMenuItems(track, { onOpenArtist, onOpenAlbum }),
-      { label: 'Share', icon: Share2, onClick: () => shareTrack(track) },
       ...extraItems,
     ];
   };

@@ -197,6 +197,8 @@ export function SettingsTab({ onClose }) {
           <button
             type="button"
             onClick={() => {
+              // Resetting is destructive-ish — always confirm first.
+              if (!window.confirm('Reset all settings to their defaults?')) return;
               writeAppSettings({ ...DEFAULT_SETTINGS });
               toast('Settings reset to defaults');
             }}

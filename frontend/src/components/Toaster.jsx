@@ -32,7 +32,7 @@ export function Toaster() {
   if (!current) return null;
 
   return (
-    <div className="fixed bottom-28 inset-x-4 z-[9999] pointer-events-none">
+    <div className="fixed bottom-36 inset-x-4 z-[9999] pointer-events-none">
       {/* Spotify's own toast recipe: a white bar with black text. On an
           otherwise-dark UI it reads instantly without needing an icon. */}
       <div

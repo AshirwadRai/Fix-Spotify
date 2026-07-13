@@ -5,6 +5,7 @@ REST API for the music search and download components.
 """
 
 import asyncio
+import re
 import threading
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Query, Request
@@ -1444,12 +1445,94 @@ async def home_feed(language: str = Query("hindi,english")):
 @app.get("/api/playlist")
 async def playlist_detail(url: str = Query(...)):
     """Resolve a JioSaavn playlist/chart (by perma_url) to a playable,
-    album-shaped tracklist. See components/home.py."""
+    album-shaped tracklist. See components/home.py. A Spotify URL routes to the
+    Spotify importer, so a saved Spotify playlist reopens like any other."""
+    if "open.spotify.com" in url or url.startswith("spotify:"):
+        return await spotify_import(url)
     try:
         from components.home import get_playlist
         return await asyncio.to_thread(get_playlist, url)
     except Exception as e:
         return {"name": "", "tracks": [], "error": str(e)}
+
+
+@app.get("/api/spotify/import")
+async def spotify_import(url: str = Query(...)):
+    """Resolve a public Spotify playlist/album URL into playable tracks —
+    same behaviour the mobile app has. Each Spotify (title, artist) is matched
+    on JioSaavn/SoundCloud with a title+artist floor so a cover or a same-named
+    wrong song is dropped (reported in `missing`) rather than played."""
+    from components.spotify_import import parse_url, fetch_tracklist
+    from components.fuzz_compat import fuzz
+
+    kind, sid = parse_url(url)
+    if not kind:
+        return {"error": "Not a Spotify playlist or album link"}
+
+    meta = await asyncio.to_thread(fetch_tracklist, kind, sid)
+    if not meta:
+        return {"error": "Could not read that playlist — is it public?"}
+
+    def _norm(s):
+        return re.sub(r"[^\w\s]", " ", (s or "").lower()).strip()
+
+    def _ok(item, track):
+        if fuzz.token_set_ratio(_norm(item["title"]), _norm(getattr(track, "title", ""))) < 82:
+            return False
+        cand = _norm(getattr(track, "artist", ""))
+        for a in re.split(r"[,&/]| x |feat| ft ", _norm(item["artist"])):
+            a = a.strip()
+            if a and (a in cand or fuzz.partial_ratio(a, cand) >= 88):
+                return True
+        return False
+
+    def _match(item):
+        try:
+            cfg = replace(
+                _search_service.config,
+                max_total_results=5,
+                max_results_per_source=5,
+                enabled_sources=PLAYABLE_SEARCH_SOURCES,
+                timeout_seconds=10.0,
+            )
+            for track in _search_service.search(f"{item['title']} {item['artist']}".strip(), cfg):
+                source = _playable_source_name(track)
+                if not source or not _ok(item, track):
+                    continue
+                return {
+                    "title": _clean_text(track.title) or item["title"],
+                    "artist": _clean_text(track.artist) or item["artist"],
+                    "album": _clean_text(track.album),
+                    "duration_ms": track.duration_ms,
+                    "isrc": track.isrc,
+                    "sources": {k.value: _source_to_dict(v) for k, v in track.sources.items()},
+                    "primary_source": source,
+                    "playable_source": source,
+                    "artwork_url": track.get_best_artwork() if hasattr(track, "get_best_artwork") else None,
+                    "artwork_urls": _clean_artwork_urls(getattr(track, "artwork_urls", {})),
+                    "is_playable": True,
+                }
+        except Exception:
+            pass
+        return None
+
+    items = meta["tracks"][:100]
+
+    def _match_all():
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=6) as ex:
+            return list(ex.map(_match, items))
+
+    matched = await asyncio.to_thread(_match_all)
+    tracks = [t for t in matched if t]
+    return {
+        "name": meta["name"],
+        "image": meta.get("image", ""),
+        "tracks": tracks,
+        "missing": [f"{i['title']} — {i['artist']}" for i, t in zip(items, matched) if not t],
+        "total": len(items),
+        "matched": len(tracks),
+    }
 
 
 @app.get("/api/genres")

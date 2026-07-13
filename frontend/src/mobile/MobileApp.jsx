@@ -16,7 +16,7 @@ import { LibraryTab } from './views/LibraryTab';
 import { SettingsTab } from './views/SettingsTab';
 import { CollectionSheet } from './views/CollectionSheet';
 import { TrackListSheet } from './views/TrackListSheet';
-import { reportPlayback, registerTransport } from './androidBridge';
+import { reportPlayback, registerTransport, registerUpdateHandlers, checkForUpdate, isAndroid } from './androidBridge';
 import { ArtistPickerSheet } from './components/ArtistPickerSheet';
 import { usePlayFrom } from './usePlayFrom';
 import { getBestArtworkUrl, splitArtists, sameTrack } from '../utils/tracks';
@@ -33,6 +33,19 @@ function Shell() {
   const [list, setList] = useState(null);                     // local liked/playlist/offline
   const [online, setOnline] = useState(navigator.onLine);
   const [justReconnected, setJustReconnected] = useState(false);
+  const [update, setUpdate] = useState(null);              // { version } when newer exists
+  const [updateDismissed, setUpdateDismissed] = useState(false);
+
+  // One silent update check at launch. Available → a dismissible popup; after
+  // dismissing, the Settings gear keeps a green dot so it stays findable.
+  useEffect(() => {
+    if (!isAndroid()) return undefined;
+    const cleanup = registerUpdateHandlers({
+      onResult: (res) => { if (res?.available) setUpdate(res); },
+    });
+    checkForUpdate();
+    return cleanup;
+  }, []);
 
   const {
     currentTrack, isPlaying, progress, duration,
@@ -251,7 +264,7 @@ function Shell() {
           stay pinned and visible on every screen except the full player. */}
       <main className="flex-1 min-h-0 relative">
         <div className={tab === 'home' ? 'h-full' : 'hidden'}>
-          <HomeTab onHomeItem={handleHomeItem} onOpenSettings={openSettings} />
+          <HomeTab onHomeItem={handleHomeItem} onOpenSettings={openSettings} updateDot={!!update} />
         </div>
         <div className={tab === 'search' ? 'h-full' : 'hidden'}>
           <SearchTab
@@ -265,6 +278,17 @@ function Shell() {
           <LibraryTab onOpenList={openList} onOpenCollection={openCollection} />
         </div>
 
+        {list && (
+          <TrackListSheet
+            view={list}
+            onClose={() => setList(null)}
+            onMenu={openMenu}
+          />
+        )}
+
+        {/* Collection renders AFTER (= on top of) a local list: opening an
+            artist/album from inside a playlist must appear over it. It used to
+            mount underneath, which read as "artist page doesn't open". */}
         {collection && (
           <CollectionSheet
             target={collection}
@@ -272,14 +296,6 @@ function Shell() {
             onMenu={openMenu}
             onOpenArtist={openArtist}
             onOpenAlbum={openAlbum}
-          />
-        )}
-
-        {list && (
-          <TrackListSheet
-            view={list}
-            onClose={() => setList(null)}
-            onMenu={openMenu}
           />
         )}
 
@@ -297,6 +313,32 @@ function Shell() {
           </div>
         )}
       </main>
+
+      {/* New-version popup — dismissible; the Settings gear keeps a green dot. */}
+      {update && !updateDismissed && !settingsOpen && (
+        <div className="fixed inset-x-4 bottom-36 z-40 flex items-center gap-3 rounded-2xl bg-spotify-elevated-base px-4 py-3 shadow-2xl animate-slide-up">
+          <span className="text-xl">✨</span>
+          <p className="min-w-0 flex-1 text-[13px] leading-snug">
+            <span className="font-bold">v{update.version} just dropped</span>
+            <span className="text-spotify-text-subdued"> — install to catch the new stuff 🔥</span>
+          </p>
+          <button
+            type="button"
+            onClick={() => { setUpdateDismissed(true); openSettings(); }}
+            className="tap shrink-0 rounded-full bg-spotify-essential-bright-accent px-3.5 py-1.5 text-[12px] font-bold text-black"
+          >
+            Get it
+          </button>
+          <button
+            type="button"
+            aria-label="Dismiss"
+            onClick={() => setUpdateDismissed(true)}
+            className="tap shrink-0 p-1 text-spotify-text-subdued"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       <MiniPlayer onExpand={openNowPlaying} />
       <BottomNav active={tab} onChange={changeTab} />

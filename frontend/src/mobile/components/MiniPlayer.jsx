@@ -89,8 +89,8 @@ export function MiniPlayer({ onExpand }) {
             <Marquee text={cleanText(currentTrack.title)} className="text-[13px] text-white leading-tight" />
             {/* Device name when on Bluetooth, else the artist. */}
             {audioOutput ? (
-              <p className="flex items-center gap-1 text-[12px] text-white/80 truncate leading-tight">
-                <Bluetooth size={11} className="shrink-0" />
+              <p className="flex items-center gap-1 text-[10.5px] text-white/70 truncate leading-tight">
+                <Bluetooth size={9} className="shrink-0" />
                 <span className="truncate">{audioOutput}</span>
               </p>
             ) : (

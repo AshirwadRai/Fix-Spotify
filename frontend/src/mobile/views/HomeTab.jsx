@@ -22,7 +22,7 @@ function readRecent() {
  * view was the "couldn't load any tracks" bug: a single-song card was being
  * fetched as if it were an album.
  */
-export function HomeTab({ onHomeItem, onOpenSettings }) {
+export function HomeTab({ onHomeItem, onOpenSettings, updateDot = false }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [recent, setRecent] = useState(readRecent);
@@ -91,9 +91,13 @@ export function HomeTab({ onHomeItem, onOpenSettings }) {
             type="button"
             aria-label="Settings"
             onClick={onOpenSettings}
-            className="tap p-1 text-spotify-text-subdued active:text-white"
+            className="tap relative p-1 text-spotify-text-subdued active:text-white"
           >
             <Settings size={24} />
+            {/* Update waiting inside — the dot survives dismissing the popup. */}
+            {updateDot && (
+              <span className="absolute right-0 top-0 h-2.5 w-2.5 rounded-full bg-spotify-essential-bright-accent ring-2 ring-spotify-black" />
+            )}
           </button>
         </div>
       </div>

@@ -1133,8 +1133,10 @@ def _build_artist(name):
     bios = [b for b in (tadb.get("bio"), lfm.get("bio"), _js_bio(js.get("bio"))) if b and len(b) > 5]
     bio = max(bios, key=len) if bios else ""
 
-    # Image: Deezer (best free photos) > TheAudioDB > JioSaavn > top-song art.
-    image = (dz.get("image") or tadb.get("image") or js.get("image")
+    # Image: JioSaavn first — its artist page is resolved via song→artistMap
+    # tokens, so the identity is CERTAIN; Deezer/TheAudioDB match by NAME and
+    # can borrow a same-named artist's photo (seen with "Aditya Rikhari").
+    image = (js.get("image") or dz.get("image") or tadb.get("image")
              or _track_art(top_songs[0] if top_songs else None))
 
     # Similar artists: Last.fm names, JioSaavn fallback; images filled via Deezer.

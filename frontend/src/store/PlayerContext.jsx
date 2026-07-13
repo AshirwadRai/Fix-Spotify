@@ -189,6 +189,7 @@ export function PlayerProvider({ children }) {
       if (
         crossfadeDuration > 0 &&
         !crossfadingRef.current &&
+        repeatRef.current !== 'one' &&   // repeat-one must REPLAY, not fade to next
         audio.duration &&
         isFinite(audio.duration) &&
         audio.duration - audio.currentTime <= crossfadeDuration &&

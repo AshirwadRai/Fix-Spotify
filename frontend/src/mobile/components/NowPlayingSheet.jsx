@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   ChevronDown, Play, Pause, SkipBack, SkipForward, Shuffle, Repeat, Repeat1,
-  Heart, ArrowDownCircle, ListMusic, Mic2, Disc3, Check, GripVertical, Bluetooth,
-  MoreVertical, Share2, ListPlus,
+  Heart, ArrowDownCircle, ListMusic, Mic2, Disc3, Check, Menu, Bluetooth,
+  MoreVertical, ListPlus,
 } from 'lucide-react';
 import { usePlayer } from '../../store/PlayerContext';
 import { useDownloads } from '../../store/DownloadsContext';
@@ -65,10 +65,13 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
   const [lyricsLoading, setLyricsLoading] = useState(false);
   const [liked, setLiked] = useState(false);
   const [scrubbing, setScrubbing] = useState(null);
-  const [menuOpen, setMenuOpen] = useState(false);          // flag (⚑) overflow menu
-  const [seekFlash, setSeekFlash] = useState(null);         // 'back' | 'fwd' — double-tap feedback
+  const [menuOpen, setMenuOpen] = useState(false);          // ⋮ overflow menu
+  const [seekFlash, setSeekFlash] = useState(null);         // { side, total } — double-tap feedback
   const lastTapRef = useRef({ t: 0, x: 0 });
   const seekFlashTimer = useRef(null);
+  const seekTargetRef = useRef(null);                       // cumulative chain target
+  const [dragDy, setDragDy] = useState(0);                  // px the dragged queue row follows the finger
+  const dragStartYRef = useRef(0);
 
   const artwork = currentTrack ? getBestArtworkUrl(currentTrack) : '';
   const rgb = useDominantColor(artwork);
@@ -86,22 +89,35 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
     return () => window.removeEventListener('likedchange', sync);
   }, [currentTrack]);
 
-  // Double-tap on the artwork: left side = back 10s, right side = forward 10s.
-  // No visible buttons — the flash overlay is the feedback (YouTube-style).
+  // Double-tap on the artwork: left = back 10s, right = forward 10s. Extra taps
+  // WHILE the flash is showing keep stacking, YouTube-style: 10 → 20 → 30…
+  // seekTargetRef carries the chain's target because `progress` (a ~4Hz state)
+  // is stale during rapid taps.
+  const bumpSeek = (side) => {
+    const step = side === 'back' ? -10 : 10;
+    const base = seekTargetRef.current ?? (scrubbing != null ? scrubbing : progress);
+    const target = Math.min(duration || Infinity, Math.max(0, base + step));
+    seekTargetRef.current = target;
+    seek(target);
+    setSeekFlash((f) => ({ side, total: (f?.side === side ? f.total : 0) + 10 }));
+    clearTimeout(seekFlashTimer.current);
+    seekFlashTimer.current = setTimeout(() => {
+      setSeekFlash(null);
+      seekTargetRef.current = null;
+    }, 700);
+  };
+
   const onArtTap = (e) => {
     const now = Date.now();
     const x = e.changedTouches ? e.changedTouches[0].clientX : e.clientX;
+    const side = x < window.innerWidth / 2 ? 'back' : 'fwd';
+    // Chain: while the ripple is up, every single tap on that side adds 10s.
+    if (seekFlash?.side === side) { bumpSeek(side); return; }
     const { t, x: px } = lastTapRef.current;
     lastTapRef.current = { t: now, x };
     if (now - t > 300 || Math.abs(x - px) > 60) return;   // not a double-tap
-    const mid = window.innerWidth / 2;
-    const back = x < mid;
-    const audioPos = scrubbing != null ? scrubbing : progress;
-    seek(back ? Math.max(0, audioPos - 10) : Math.min(duration || Infinity, audioPos + 10));
-    setSeekFlash(back ? 'back' : 'fwd');
-    clearTimeout(seekFlashTimer.current);
-    seekFlashTimer.current = setTimeout(() => setSeekFlash(null), 550);
     lastTapRef.current = { t: 0, x: 0 };                   // consume the pair
+    bumpSeek(side);
   };
 
   // Reset to the artwork pane on track change, so a new song never opens on the
@@ -159,6 +175,7 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
   const onQueueTouchMove = (e) => {
     if (dragFrom === null) return;
     const t = e.touches[0];
+    setDragDy(t.clientY - dragStartYRef.current);   // the row FOLLOWS the finger
     const row = document.elementFromPoint(t.clientX, t.clientY)?.closest('[data-qidx]');
     if (row) {
       const idx = Number(row.getAttribute('data-qidx'));
@@ -171,6 +188,7 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
     }
     setDragFrom(null);
     setDragOver(null);
+    setDragDy(0);
   };
 
   return (
@@ -223,18 +241,6 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
           >
             <button
               type="button"
-              onClick={() => {
-                setMenuOpen(false);
-                const text = `${cleanText(currentTrack.title)} — ${cleanText(currentTrack.artist)}`;
-                if (navigator.share) navigator.share({ title: text, text }).catch(() => {});
-                else navigator.clipboard?.writeText(text);
-              }}
-              className="tap flex w-full items-center gap-3 px-4 py-3 text-left text-[14px] active:bg-white/10"
-            >
-              <Share2 size={17} className="text-spotify-text-subdued" /> Share
-            </button>
-            <button
-              type="button"
               onClick={() => { setMenuOpen(false); onAddToPlaylist?.(currentTrack); }}
               className="tap flex w-full items-center gap-3 px-4 py-3 text-left text-[14px] active:bg-white/10"
             >
@@ -259,21 +265,30 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
               ) : null}
             </div>
 
-            {/* Double-tap feedback, YouTube-style: a soft half-disc washes in
-                from the tapped edge with ◀◀◀ arrows and "−10 seconds". */}
+            {/* Double-tap feedback, YouTube-style: a soft half-disc from the
+                tapped edge; the three arrows light up ONE AFTER ANOTHER and the
+                total stacks with every extra tap (−10 → −20 → −30 seconds). */}
             {seekFlash && (
               <div
                 className={`pointer-events-none absolute inset-y-0 w-1/2 flex flex-col items-center justify-center gap-1.5 text-white animate-fade-in ${
-                  seekFlash === 'back'
+                  seekFlash.side === 'back'
                     ? 'left-0 rounded-r-[100%] bg-gradient-to-r from-white/20 to-transparent'
                     : 'right-0 rounded-l-[100%] bg-gradient-to-l from-white/20 to-transparent'
                 }`}
               >
-                <span className="flex items-center text-[20px] leading-none tracking-[-0.2em] drop-shadow">
-                  {seekFlash === 'back' ? '◀◀◀' : '▶▶▶'}
+                <span className="flex items-center gap-0.5 text-[18px] leading-none drop-shadow">
+                  {[0, 1, 2].map((i) => (
+                    <span
+                      key={i}
+                      className="peek-arrow"
+                      style={{ animationDelay: `${i * 120}ms` }}
+                    >
+                      {seekFlash.side === 'back' ? '◀' : '▶'}
+                    </span>
+                  ))}
                 </span>
                 <span className="text-[13px] font-medium drop-shadow">
-                  {seekFlash === 'back' ? '−10 seconds' : '+10 seconds'}
+                  {seekFlash.side === 'back' ? '−' : '+'}{seekFlash.total} seconds
                 </span>
               </div>
             )}
@@ -324,7 +339,7 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
             onTouchEnd={onQueueTouchEnd}
           >
             <p className="text-xs uppercase tracking-wider text-white/60 mb-2 px-1">
-              Next up · hold <GripVertical size={11} className="inline -mt-0.5" /> to reorder
+              Next up · hold <Menu size={11} className="inline -mt-0.5" /> to reorder
             </p>
             {queue.length === 0 && (
               <p className="text-white/50 text-sm px-1 py-4">
@@ -335,8 +350,13 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
               <div
                 key={`${t.title}-${i}`}
                 data-qidx={i}
-                className={`flex items-center gap-2 rounded-2xl px-1 transition-[background-color,transform,box-shadow] duration-fast ease-soft ${
-                  dragFrom === i ? 'scale-[1.02] bg-white/[0.07] opacity-90 shadow-lg' : ''
+                // The picked-up row tracks the finger live (translateY) and
+                // floats above the list; on release it settles into place.
+                style={dragFrom === i ? { transform: `translateY(${dragDy}px) scale(1.02)`, zIndex: 5, position: 'relative' } : undefined}
+                className={`flex items-center gap-2 rounded-2xl px-1 ${
+                  dragFrom === i
+                    ? 'bg-spotify-elevated-highlight shadow-xl'
+                    : 'transition-[background-color,transform] duration-fast ease-soft'
                 } ${dragOver === i && dragFrom !== null && dragFrom !== i ? 'bg-white/15' : ''}`}
               >
                 <button
@@ -358,9 +378,9 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
                   type="button"
                   aria-label="Drag to reorder"
                   className="p-2 text-white/40 shrink-0 touch-none"
-                  onTouchStart={() => setDragFrom(i)}
+                  onTouchStart={(e) => { dragStartYRef.current = e.touches[0].clientY; setDragFrom(i); }}
                 >
-                  <GripVertical size={18} />
+                  <Menu size={18} />
                 </button>
               </div>
             ))}
