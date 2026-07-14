@@ -9,6 +9,11 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to stamp, e.g. 1.3.0-rc1. Must be HIGHER than the version already on the phone, or Android refuses to install over it (a downgrade needs an uninstall, which wipes the library)."
+        required: false
+        default: "1.3.0-rc1"
 
 concurrency:
   group: android-${{ github.ref }}
@@ -94,15 +99,25 @@ jobs:
       # The APK's versionName is DERIVED FROM THE TAG (v1.2.2 -> 1.2.2), passed
       # to Gradle as -PappVersionName. This is what stops the tag and the built
       # version from ever disagreeing (the cause of the endless-update loop).
-      # On workflow_dispatch (ref is a branch, not a v* tag) we skip the override
-      # and let build.gradle's local fallback apply.
+      #
+      # On workflow_dispatch there is no tag, so the version comes from the run's
+      # `version` input instead. It used to fall through to build.gradle's local
+      # fallback (1.2.1), which made every test APK a DOWNGRADE against a phone
+      # already on a later release — Android refuses to install those over the top,
+      # so the only way in was an uninstall, which wipes the user's library. An
+      # explicit input keeps test builds installable.
       - name: Build release APK
         working-directory: mobile/android
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
           VERSION_ARG=""
           case "$GITHUB_REF_NAME" in
             v*) VERSION_ARG="-PappVersionName=${GITHUB_REF_NAME#v}" ;;
           esac
+          if [ -n "$INPUT_VERSION" ]; then
+            VERSION_ARG="-PappVersionName=$INPUT_VERSION"
+          fi
           echo "Building with ${VERSION_ARG:-(local fallback version)}"
           ./gradlew assembleRelease --no-daemon --stacktrace $VERSION_ARG
 
