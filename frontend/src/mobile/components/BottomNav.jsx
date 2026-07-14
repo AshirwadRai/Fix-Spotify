@@ -18,16 +18,28 @@ const TABS = [
  */
 export function BottomNav({ active, onChange }) {
   return (
-    // Darker and properly glassy: a near-black translucent pane over a heavy
-    // blur, with a hairline of light along the top edge to lift it off the
-    // content behind. `saturate` is what stops the blurred artwork underneath
-    // going grey and muddy — it's the difference between frosted glass and fog.
+    // Proper frosted glass: a thin dark pane over a heavy blur, so the artwork
+    // and artwork-tinted content scrolling underneath actually reads through it.
+    //
+    // The tint is deliberately LIGHT (0.55, not 0.8) — the darker it gets, the
+    // more it just becomes an opaque bar again, and the glass stops being visible
+    // as glass. `saturate` is what keeps the colour underneath alive instead of
+    // letting the blur wash it to grey; that's the whole difference between
+    // frosted glass and fog.
+    //
+    // translateZ(0) forces its own compositing layer. Without it the WebView
+    // re-rasterises the blur against the scrolling content every frame and the
+    // whole bar shimmers.
     <nav
-      className="shrink-0 border-t border-white/[0.09] pb-safe"
+      className="shrink-0 border-t border-white/[0.12] pb-safe"
       style={{
-        backgroundColor: 'rgba(9, 9, 11, 0.72)',
-        backdropFilter: 'blur(24px) saturate(180%)',
-        WebkitBackdropFilter: 'blur(24px) saturate(180%)',
+        backgroundColor: 'rgba(12, 12, 14, 0.55)',
+        backdropFilter: 'blur(32px) saturate(200%)',
+        WebkitBackdropFilter: 'blur(32px) saturate(200%)',
+        transform: 'translateZ(0)',
+        willChange: 'transform',
+        // A soft lift so the bar sits ON the content rather than being cut out of it.
+        boxShadow: '0 -1px 24px rgba(0, 0, 0, 0.45)',
       }}
     >
       <div className="flex items-stretch">

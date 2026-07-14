@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback } from 'react';
-import { Heart, Plus, Music2, ArrowDownToLine, Disc3, Pin } from 'lucide-react';
-import { usePins, togglePin, rowId, sortPinned, MAX_PINS } from '../../utils/pins';
+import { Heart, Plus, Music2, ArrowDownToLine, Disc3, Pin, PinOff, MoreVertical } from 'lucide-react';
+import { usePins, togglePin, isPinned, rowId, sortPinned, MAX_PINS } from '../../utils/pins';
 import { useLikedSongs } from '../../utils/likes';
 import { useSavedCollections } from '../../utils/collections';
 import { useOfflineTracks } from '../../utils/downloads';
@@ -44,9 +44,14 @@ export function LibraryTab({ onOpenList, onOpenCollection }) {
   // playlists), which keeps the filter chips meaningful — a pinned album jumping
   // into the Playlists list would just be confusing.
   const pins = usePins();
+  // The row whose ⋮ menu is open: { id, title }.
+  const [menu, setMenu] = useState(null);
+
   const pin = useCallback((id) => {
     const res = togglePin(id);
     if (res === 'full') toast(`You can pin up to ${MAX_PINS} — unpin one first`);
+    else if (res === 'pinned') toast('Pinned to the top');
+    setMenu(null);
   }, []);
 
   const showPlaylists = filter === 'all' || filter === 'playlists';
@@ -188,7 +193,7 @@ export function LibraryTab({ onOpenList, onOpenCollection }) {
                 active={!!currentTrack && (p.tracks || []).some((t) => sameTrack(t, currentTrack))}
                 subtitle={`Playlist · ${(p.tracks || []).length} songs`}
                 pinned={pins.includes(id)}
-                onTogglePin={() => pin(id)}
+                onMenu={() => setMenu({ id, title: p.name })}
                 onClick={() =>
                   onOpenList({
                     kind: 'playlist',
@@ -213,7 +218,7 @@ export function LibraryTab({ onOpenList, onOpenCollection }) {
                 title={cleanText(c.name)}
                 subtitle={`${c.type || 'Album'} · ${cleanText(c.artist) || 'Various'}`}
                 pinned={pins.includes(id)}
-                onTogglePin={() => pin(id)}
+                onMenu={() => setMenu({ id, title: cleanText(c.name) })}
                 onClick={() => onOpenCollection(c)}
               />
             );
@@ -244,28 +249,63 @@ export function LibraryTab({ onOpenList, onOpenCollection }) {
 
         <div className="h-6" />
       </div>
+
+      {menu && (
+        <RowMenu
+          title={menu.title}
+          pinned={isPinned(menu.id)}
+          onPin={() => pin(menu.id)}
+          onClose={() => setMenu(null)}
+        />
+      )}
     </div>
+  );
+}
+
+/**
+ * The ⋮ sheet for a library row. Pin/unpin only, for now — matching the track
+ * action sheet's shape so the two feel like the same control.
+ */
+function RowMenu({ title, pinned, onPin, onClose }) {
+  return (
+    <>
+      <div className="fixed inset-0 z-[60] bg-black/60" onClick={onClose} aria-hidden="true" />
+      <div className="fixed inset-x-0 bottom-0 z-[61] rounded-t-2xl bg-spotify-elevated-base pb-safe">
+        <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-white/25" />
+        <p className="truncate px-5 pt-3 pb-1 text-[13px] text-spotify-text-subdued">{title}</p>
+        <button
+          type="button"
+          onClick={onPin}
+          className="tap flex w-full items-center gap-4 px-5 py-4 text-left active:bg-white/5"
+        >
+          {pinned
+            ? <PinOff size={20} className="shrink-0 text-spotify-text-subdued" />
+            : <Pin size={20} className="shrink-0 text-spotify-text-subdued" />}
+          <span className="text-[15px]">{pinned ? 'Unpin' : `Pin to top (max ${MAX_PINS})`}</span>
+        </button>
+      </div>
+    </>
   );
 }
 
 /**
  * A library row.
  *
- * The trailing chevron is gone. It said nothing — every row here opens, so an
- * affordance on all of them carries no information — and it was occupying the one
- * bit of space worth having. A pin button lives there now: subdued when off,
- * accent when pinned, and absent entirely on rows that can't be pinned (Liked
- * Songs and Downloaded are already fixed at the top).
+ * The trailing chevron is gone — every row here opens, so an affordance on all of
+ * them carried no information. Pinning lives behind the ⋮ menu rather than as a
+ * permanent button: a pin icon on every single row is a lot of ink for something
+ * you do once and then leave alone. A pinned row says so with a small pin next to
+ * its subtitle, which is the part that actually needs to be visible.
  *
  * `cover` is an escape hatch for a rendered element (the playlist mosaic);
  * `image` stays the simple URL path used by albums.
  */
 function Row({
   image, cover, Icon, gradient, filled, rounded, title, subtitle,
-  active = false, onClick, pinned = null, onTogglePin,
+  active = false, onClick, pinned = null, onMenu,
 }) {
   return (
-    <div className="flex items-center gap-1 pr-2 transition-colors duration-fast active:bg-white/5">
+    <div className="flex items-center pr-1 transition-colors duration-fast active:bg-white/5">
       <button
         type="button"
         onClick={onClick}
@@ -290,23 +330,23 @@ function Row({
           <p className={`text-[14px] truncate ${active ? 'text-spotify-essential-bright-accent' : ''}`}>
             {title}
           </p>
-          <p className="text-[11.5px] text-spotify-text-subdued truncate">{subtitle}</p>
+          <p className="flex items-center gap-1 text-[11.5px] text-spotify-text-subdued truncate">
+            {pinned && (
+              <Pin size={10} className="shrink-0 text-spotify-essential-bright-accent" fill="currentColor" />
+            )}
+            <span className="truncate">{subtitle}</span>
+          </p>
         </div>
       </button>
 
-      {pinned !== null && (
+      {onMenu && (
         <button
           type="button"
-          aria-label={pinned ? `Unpin ${title}` : `Pin ${title}`}
-          aria-pressed={pinned}
-          onClick={onTogglePin}
-          className="tap shrink-0 p-2"
+          aria-label={`More options for ${title}`}
+          onClick={onMenu}
+          className="tap shrink-0 p-2.5 text-spotify-essential-subdued"
         >
-          <Pin
-            size={16}
-            className={pinned ? 'text-spotify-essential-bright-accent' : 'text-spotify-essential-subdued'}
-            fill={pinned ? 'currentColor' : 'none'}
-          />
+          <MoreVertical size={18} />
         </button>
       )}
     </div>

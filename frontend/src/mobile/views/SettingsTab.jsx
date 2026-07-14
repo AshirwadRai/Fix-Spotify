@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Check, RotateCcw, HardDrive, ChevronLeft, ChevronDown, RefreshCw } from 'lucide-react';
+import { Check, RotateCcw, HardDrive, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
 import {
   useAppSettings, writeAppSetting, writeAppSettings, DEFAULT_SETTINGS,
 } from '../../utils/settings';
@@ -45,8 +45,14 @@ function Section({ title, subtitle, children, inset = false }) {
   );
 }
 
-/** A full-width row with a native-feeling toggle. 56px tall = a comfortable tap. */
-function Toggle({ label, hint, checked, onChange, disabled = false }) {
+/**
+ * A full-width row with a native-feeling toggle. 56px tall = a comfortable tap.
+ *
+ * `dot` is the source's brand colour, so a toggleable source (YouTube) lines up
+ * with the always-on ones above it instead of looking like a different species of
+ * row.
+ */
+function Toggle({ label, hint, checked, onChange, disabled = false, dot = null }) {
   return (
     <button
       type="button"
@@ -54,8 +60,9 @@ function Toggle({ label, hint, checked, onChange, disabled = false }) {
       aria-checked={checked}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className="w-full flex items-center gap-4 py-3 text-left disabled:opacity-50"
+      className="w-full flex items-center gap-3 py-3 text-left disabled:opacity-50"
     >
+      {dot && <span className={`h-2 w-2 shrink-0 rounded-full ${dot}`} />}
       <div className="flex-1 min-w-0">
         <p className="text-[15px]">{label}</p>
         {hint && <p className="text-[12px] text-spotify-text-subdued mt-0.5 leading-snug">{hint}</p>}
@@ -76,36 +83,43 @@ function Toggle({ label, hint, checked, onChange, disabled = false }) {
 }
 
 /**
- * A collapsible row that OWNS a set of options, showing the current pick on the
- * right when closed.
+ * A row that opens a DEDICATED panel, stating where the setting stands on the
+ * right so you don't have to open it to find out.
  *
- * This is what stops the screen reading as one flat wall of switches: a group
- * with several choices under it (bitrate, EQ, crossfade) collapses to a single
- * line that states where it's set, and only opens when you're actually changing
- * it. Everything nests under a heading that explains it.
+ * These used to be accordions. An accordion for something like the equalizer is
+ * the worst of both: it's too big to sit inline, and expanding it shoves every
+ * setting below it down the screen. A setting with more than a switch's worth of
+ * choice deserves its own screen.
  */
-function SubGroup({ label, value, children, defaultOpen = false }) {
-  const [open, setOpen] = useState(defaultOpen);
+function PanelRow({ label, value, onClick }) {
   return (
-    <div>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="w-full flex items-center gap-3 py-3 text-left"
-      >
-        <span className="flex-1 min-w-0 text-[14px]">{label}</span>
-        {value != null && (
-          <span className="shrink-0 text-[12.5px] text-spotify-text-subdued">{value}</span>
-        )}
-        <ChevronDown
-          size={16}
-          className={`shrink-0 text-spotify-text-subdued transition-transform duration-fast ${
-            open ? 'rotate-180' : ''
-          }`}
-        />
-      </button>
-      {open && <div className="pb-1 pl-1 border-l-2 border-white/[0.07]">{children}</div>}
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full flex items-center gap-3 py-3.5 text-left active:bg-white/5"
+    >
+      <span className="flex-1 min-w-0 text-[15px]">{label}</span>
+      {value != null && (
+        <span className="shrink-0 text-[13px] text-spotify-text-subdued">{value}</span>
+      )}
+      <ChevronRight size={16} className="shrink-0 text-spotify-essential-subdued" />
+    </button>
+  );
+}
+
+/** A settings sub-screen: its own header, its own back button, its own scroll. */
+function Panel({ title, onBack, children }) {
+  return (
+    <div className="flex flex-col h-full bg-spotify-base">
+      <div className="pt-safe shrink-0">
+        <div className="flex items-center gap-2 px-2 pt-3 pb-2">
+          <button type="button" onClick={onBack} aria-label="Back" className="tap p-2">
+            <ChevronLeft size={26} />
+          </button>
+          <h1 className="text-2xl font-bold">{title}</h1>
+        </div>
+      </div>
+      <div className="scroll-y pb-bars flex-1">{children}</div>
     </div>
   );
 }
@@ -134,6 +148,70 @@ function Choice({ label, hint, selected, onClick }) {
 
 export function SettingsTab({ onClose }) {
   const settings = useAppSettings();
+  // Which dedicated panel is open, if any. null = the settings list itself.
+  const [panel, setPanel] = useState(null);
+
+  const qualityLabel = QUALITIES.find((q) => Number(settings.audioQuality) === q.value)?.label;
+  const crossfadeLabel = Number(settings.crossfadeDuration) > 0
+    ? `${settings.crossfadeDuration}s`
+    : 'Off';
+  const eqLabel = settings.eqEnabled
+    ? (EQ_PRESETS.find((p) => p.id === settings.eqPreset)?.label || 'Custom')
+    : 'Off';
+
+  // Anything with more than a switch's worth of choice gets its OWN screen, not
+  // an accordion that shoves the rest of the list around when it opens. The row
+  // states where the setting stands; the panel is where you change it.
+  if (panel === 'quality') {
+    return (
+      <Panel title="Sound quality" onBack={() => setPanel(null)}>
+        <Section title="Streaming bitrate" subtitle="Higher sounds better and uses more data" inset>
+          {QUALITIES.map((q) => (
+            <Choice
+              key={q.value}
+              label={q.label}
+              hint={q.hint}
+              selected={Number(settings.audioQuality) === q.value}
+              onClick={() => writeAppSetting('audioQuality', q.value)}
+            />
+          ))}
+        </Section>
+      </Panel>
+    );
+  }
+
+  if (panel === 'equalizer') {
+    return (
+      <Panel title="Equalizer" onBack={() => setPanel(null)}>
+        <EqualizerPanel settings={settings} />
+      </Panel>
+    );
+  }
+
+  if (panel === 'crossfade') {
+    return (
+      <Panel title="Crossfade" onBack={() => setPanel(null)}>
+        <Section title="Overlap" subtitle="Let one song melt into the next instead of stopping dead" inset>
+          <div className="flex items-center gap-3 py-4">
+            <span className="w-7 text-[11px] text-spotify-text-subdued">Off</span>
+            <input
+              type="range"
+              min="0"
+              max="12"
+              step="1"
+              value={Number(settings.crossfadeDuration) || 0}
+              onChange={(e) => writeAppSetting('crossfadeDuration', Number(e.target.value))}
+              aria-label="Crossfade duration in seconds"
+              className="slider flex-1"
+            />
+            <span className="w-8 text-right text-[13px] font-bold tabular-nums text-white">
+              {Number(settings.crossfadeDuration) || 0}s
+            </span>
+          </div>
+        </Section>
+      </Panel>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full bg-spotify-base">
@@ -154,17 +232,7 @@ export function SettingsTab({ onClose }) {
             section and the two badges were stranded under "Playback", which had
             nothing to do with either. */}
         <Section title="Media quality" subtitle="Streaming bitrate and what's shown on tracks" inset>
-          <SubGroup label="Sound quality" value={QUALITIES.find((q) => Number(settings.audioQuality) === q.value)?.label}>
-            {QUALITIES.map((q) => (
-              <Choice
-                key={q.value}
-                label={q.label}
-                hint={q.hint}
-                selected={Number(settings.audioQuality) === q.value}
-                onClick={() => writeAppSetting('audioQuality', q.value)}
-              />
-            ))}
-          </SubGroup>
+          <PanelRow label="Sound quality" value={qualityLabel} onClick={() => setPanel('quality')} />
           <Toggle
             label="Source badge"
             hint="Show where each track streams from (JioSaavn, SoundCloud, YouTube)"
@@ -181,31 +249,8 @@ export function SettingsTab({ onClose }) {
 
         {/* Sound — everything that shapes the audio itself. */}
         <Section title="Sound" subtitle="Equalizer, crossfade and levels" inset>
-          <EqualizerGroup settings={settings} />
-          <SubGroup
-            label="Crossfade"
-            value={Number(settings.crossfadeDuration) > 0 ? `${settings.crossfadeDuration}s` : 'Off'}
-          >
-            <p className="pb-2 pt-1 text-[11.5px] leading-snug text-spotify-text-subdued">
-              Let one song melt into the next instead of stopping dead.
-            </p>
-            <div className="flex items-center gap-3 pb-3">
-              <span className="w-7 text-[11px] text-spotify-text-subdued">Off</span>
-              <input
-                type="range"
-                min="0"
-                max="12"
-                step="1"
-                value={Number(settings.crossfadeDuration) || 0}
-                onChange={(e) => writeAppSetting('crossfadeDuration', Number(e.target.value))}
-                aria-label="Crossfade duration in seconds"
-                className="slider flex-1"
-              />
-              <span className="w-8 text-right text-[12px] font-bold tabular-nums text-white">
-                {Number(settings.crossfadeDuration) || 0}s
-              </span>
-            </div>
-          </SubGroup>
+          <PanelRow label="Equalizer" value={eqLabel} onClick={() => setPanel('equalizer')} />
+          <PanelRow label="Crossfade" value={crossfadeLabel} onClick={() => setPanel('crossfade')} />
           <Toggle
             label="Normalize volume"
             hint="Even out loud and quiet tracks so you're not reaching for the dial"
@@ -385,10 +430,9 @@ function StorageSection() {
  * still applies here, downstream of us; we just can't offer a switch for it, and
  * a fake one would be worse than none.
  */
-function EqualizerGroup({ settings }) {
+function EqualizerPanel({ settings }) {
   const enabled = !!settings.eqEnabled;
   const gains = resolveGains(settings);
-  const activeLabel = EQ_PRESETS.find((p) => p.id === settings.eqPreset)?.label || 'Custom';
 
   // Dragging a band always lands in Custom, seeded from whatever is on screen —
   // so nudging one band of "Rock" keeps the other seven where they were.
@@ -412,38 +456,46 @@ function EqualizerGroup({ settings }) {
 
   return (
     <>
-      <Toggle
-        label="Equalizer"
-        hint="Shape the sound across eight frequency bands"
-        checked={enabled}
-        onChange={(v) => writeAppSetting('eqEnabled', v)}
-      />
-      {enabled && (
-        <SubGroup label="Preset" value={activeLabel} defaultOpen>
-          <div className="rail py-2 pl-2">
-            {EQ_PRESETS.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => pickPreset(p.id)}
-                className={`shrink-0 rounded-full px-3 py-1.5 text-[12px] whitespace-nowrap transition-colors duration-fast ${
-                  settings.eqPreset === p.id
-                    ? 'bg-white font-semibold text-black'
-                    : 'bg-white/10 text-white'
-                }`}
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
+      <Section title="Equalizer" subtitle="Shape the sound across eight frequency bands" inset>
+        <Toggle
+          label="Enable equalizer"
+          checked={enabled}
+          onChange={(v) => writeAppSetting('eqEnabled', v)}
+        />
+      </Section>
 
-          {/* Vertical sliders, one per band. `writing-mode` is the native way to
-              stand an <input type=range> on end — no custom drag handling, and it
-              keeps the OS's own accessibility and touch targets. */}
-          <div className="flex items-end justify-between gap-1 px-2 pb-1 pt-3">
+      {/* The bands stay MOUNTED but go dim and inert when the EQ is off, rather
+          than vanishing — so the panel doesn't collapse to a single switch and
+          you can see what you're about to turn on. */}
+      <section className={`px-4 py-5 ${enabled ? '' : 'pointer-events-none opacity-40'}`}>
+        <h2 className="text-[17px] font-extrabold tracking-tight">Preset</h2>
+
+        <div className="rail mt-3">
+          {EQ_PRESETS.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              disabled={!enabled}
+              onClick={() => pickPreset(p.id)}
+              className={`shrink-0 rounded-full px-3.5 py-1.5 text-[12.5px] whitespace-nowrap transition-colors duration-fast ${
+                settings.eqPreset === p.id
+                  ? 'bg-white font-semibold text-black'
+                  : 'bg-white/10 text-white'
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Vertical sliders, one per band. `writing-mode` is the native way to
+            stand an <input type=range> on end — no custom drag handling, and it
+            keeps the OS's own accessibility and touch targets. */}
+        <div className="mt-5 rounded-xl bg-white/[0.035] px-2 py-4">
+          <div className="flex items-end justify-between gap-1">
             {EQ_BANDS.map((hz, i) => (
-              <div key={hz} className="flex flex-1 flex-col items-center gap-1.5">
-                <span className="text-[9.5px] tabular-nums text-spotify-text-subdued">
+              <div key={hz} className="flex flex-1 flex-col items-center gap-2">
+                <span className="text-[10px] tabular-nums text-spotify-text-subdued">
                   {gains[i] > 0 ? `+${gains[i]}` : gains[i]}
                 </span>
                 <input
@@ -451,26 +503,33 @@ function EqualizerGroup({ settings }) {
                   min={EQ_MIN_DB}
                   max={EQ_MAX_DB}
                   step="1"
+                  disabled={!enabled}
                   value={gains[i]}
                   onChange={(e) => setBand(i, Number(e.target.value))}
                   aria-label={`${bandLabel(hz)} hertz, ${gains[i]} decibels`}
                   className="slider slider-v"
-                  style={{ writingMode: 'vertical-lr', direction: 'rtl', width: '20px', height: '104px' }}
+                  style={{ writingMode: 'vertical-lr', direction: 'rtl', width: '22px', height: '128px' }}
                 />
-                <span className="text-[9.5px] text-spotify-text-subdued">{bandLabel(hz)}</span>
+                <span className="text-[10px] text-spotify-text-subdued">{bandLabel(hz)}</span>
               </div>
             ))}
           </div>
+        </div>
 
-          <button
-            type="button"
-            onClick={() => pickPreset('flat')}
-            className="tap mb-2 ml-2 rounded-full bg-white/10 px-3 py-1.5 text-[11.5px] text-spotify-text-subdued"
-          >
-            Reset to flat
-          </button>
-        </SubGroup>
-      )}
+        <button
+          type="button"
+          disabled={!enabled}
+          onClick={() => pickPreset('flat')}
+          className="tap mt-4 rounded-full bg-white/10 px-4 py-2 text-[12.5px] text-spotify-text-subdued"
+        >
+          Reset to flat
+        </button>
+
+        <p className="mt-4 text-[11.5px] leading-snug text-spotify-text-subdued">
+          Dolby Atmos and other spatial-audio modes are applied by your phone,
+          outside the app — if yours has one, it still works alongside this.
+        </p>
+      </section>
     </>
   );
 }
@@ -550,6 +609,7 @@ function YouTubeExperimentalToggle() {
   return (
     <Toggle
       label="YouTube"
+      dot="bg-[#ff4444]"
       hint={
         busy
           ? 'Checking your device…'

@@ -364,10 +364,17 @@ function Shell() {
             the z-20 sheets) also keeps them visible on every screen except the
             full player, exactly as before.
 
+            FIXED, not absolute. An absolutely-positioned backdrop-filter element
+            is re-composited against the content moving behind it on every scroll
+            frame, and the WebView lands those repaints a frame late — which is
+            the shake that showed up on Home the moment the bar became glass.
+            Fixing it to the viewport takes it out of the scroll's compositing
+            path entirely, so it cannot be dragged around by the layer behind it.
+
             pointer-events: the wrapper spans the full width including the
             mini-player's side gutters, so it must not swallow taps that land in
             them — the bars themselves take pointer events back. */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30">
+        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30">
           <div className="pointer-events-auto">
             <MiniPlayer onExpand={openNowPlaying} />
             <BottomNav active={tab} onChange={changeTab} />
