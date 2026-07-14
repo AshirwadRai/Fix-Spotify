@@ -52,9 +52,9 @@ export function MiniPlayer({ onExpand }) {
   const rgb = useDominantColor(getBestArtworkUrl(currentTrack));
   const audioOutput = useAudioOutput(!!currentTrack);
   const [liked, setLiked] = useState(false);
-  // Horizontal drag offset while a swipe is in progress (px). null = not swiping.
-  const [dragX, setDragX] = useState(null);
-  const swipeRef = useRef(null);   // { x, y, locked: 'h' | 'v' | null }
+  // { x, y, locked: 'h' | 'v' | null, dx } — a REF, not state, so tracking the
+  // finger never re-renders the bar. See the swipe handlers below.
+  const swipeRef = useRef(null);
   // Follow the SHARED liked store: re-read on track change AND whenever a like
   // is toggled anywhere (expanded player, track rows) so the hearts never
   // disagree between views.
@@ -71,8 +71,13 @@ export function MiniPlayer({ onExpand }) {
   const pct = duration > 0 ? (progress / duration) * 100 : 0;
 
   // ── Swipe to change song ────────────────────────────────────────────────
-  // Swipe LEFT for the next song, RIGHT for the previous one — the bar follows
-  // the finger and springs back if the swipe was too short to count.
+  // Swipe LEFT for the next song, RIGHT for the previous one.
+  //
+  // The bar itself does NOT move. It stays exactly where it is and only the song
+  // changes — the gesture is read, not animated. (It used to translate with the
+  // finger and spring back, which read as the bar shaking.) So the whole gesture
+  // lives in a ref: nothing here triggers a render until the track actually
+  // changes, which is the only thing that should visibly change.
   //
   // The axis is LOCKED on the first few pixels of movement: without that, a
   // vertical scroll that drifts sideways would register as a song skip. Once a
@@ -81,7 +86,7 @@ export function MiniPlayer({ onExpand }) {
 
   const onTouchStart = (e) => {
     const t = e.touches[0];
-    swipeRef.current = { x: t.clientX, y: t.clientY, locked: null };
+    swipeRef.current = { x: t.clientX, y: t.clientY, locked: null, dx: 0 };
   };
 
   const onTouchMove = (e) => {
@@ -96,20 +101,16 @@ export function MiniPlayer({ onExpand }) {
       s.locked = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';
     }
     if (s.locked !== 'h') return;
-    setDragX(dx);
+    s.dx = dx;
   };
 
   const onTouchEnd = () => {
     const s = swipeRef.current;
     swipeRef.current = null;
-    const dx = dragX;
-    setDragX(null);
-    if (!s || s.locked !== 'h' || dx == null) return;
-    if (dx <= -SWIPE_MIN) playNext();
-    else if (dx >= SWIPE_MIN) playPrevious();
+    if (!s || s.locked !== 'h') return;
+    if (s.dx <= -SWIPE_MIN) playNext();
+    else if (s.dx >= SWIPE_MIN) playPrevious();
   };
-
-  const swiping = dragX != null;
 
   // Tint the bar from the artwork, like Spotify, instead of a flat grey. The
   // dominant colour is darkened so white text/icons stay readable on top.
@@ -120,12 +121,9 @@ export function MiniPlayer({ onExpand }) {
       className="shrink-0 mx-2 mb-1 rounded-lg overflow-hidden shadow-lg transition-colors duration-slow ease-soft"
       style={{
         backgroundColor: tint || undefined,
-        // Follow the finger, then spring back. `touch-action: pan-y` lets the
-        // page still scroll vertically through the bar while we own the X axis.
+        // `pan-y` lets the page still scroll vertically through the bar while we
+        // own the X axis. The bar never translates — only the song changes.
         touchAction: 'pan-y',
-        transform: swiping ? `translateX(${dragX}px)` : undefined,
-        opacity: swiping ? Math.max(0.45, 1 - Math.abs(dragX) / 240) : undefined,
-        transition: swiping ? 'none' : 'transform 200ms ease-out, opacity 200ms ease-out',
       }}
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
