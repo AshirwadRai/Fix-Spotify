@@ -1,8 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Check, RotateCcw, HardDrive, Info, ChevronLeft, RefreshCw } from 'lucide-react';
+import { Check, RotateCcw, HardDrive, ChevronLeft, ChevronDown, RefreshCw } from 'lucide-react';
 import {
   useAppSettings, writeAppSetting, writeAppSettings, DEFAULT_SETTINGS,
 } from '../../utils/settings';
+import {
+  EQ_BANDS, EQ_PRESETS, EQ_MIN_DB, EQ_MAX_DB,
+  resolveGains, presetGains, normalizeGains, bandLabel,
+} from '../../utils/eq';
 import { api } from '../../api';
 import { toast } from '../../utils/toast';
 import {
@@ -71,6 +75,41 @@ function Toggle({ label, hint, checked, onChange, disabled = false }) {
   );
 }
 
+/**
+ * A collapsible row that OWNS a set of options, showing the current pick on the
+ * right when closed.
+ *
+ * This is what stops the screen reading as one flat wall of switches: a group
+ * with several choices under it (bitrate, EQ, crossfade) collapses to a single
+ * line that states where it's set, and only opens when you're actually changing
+ * it. Everything nests under a heading that explains it.
+ */
+function SubGroup({ label, value, children, defaultOpen = false }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="w-full flex items-center gap-3 py-3 text-left"
+      >
+        <span className="flex-1 min-w-0 text-[14px]">{label}</span>
+        {value != null && (
+          <span className="shrink-0 text-[12.5px] text-spotify-text-subdued">{value}</span>
+        )}
+        <ChevronDown
+          size={16}
+          className={`shrink-0 text-spotify-text-subdued transition-transform duration-fast ${
+            open ? 'rotate-180' : ''
+          }`}
+        />
+      </button>
+      {open && <div className="pb-1 pl-1 border-l-2 border-white/[0.07]">{children}</div>}
+    </div>
+  );
+}
+
 /** Radio row with a checkmark — the standard iOS/Android single-select pattern. */
 function Choice({ label, hint, selected, onClick }) {
   return (
@@ -110,79 +149,83 @@ export function SettingsTab({ onClose }) {
       </div>
 
       <div className="scroll-y flex-1">
-        <Section title="Audio Quality" subtitle="Choose preferred streaming bitrate" inset>
-          {QUALITIES.map((q) => (
-            <Choice
-              key={q.value}
-              label={q.label}
-              hint={q.hint}
-              selected={Number(settings.audioQuality) === q.value}
-              onClick={() => writeAppSetting('audioQuality', q.value)}
-            />
-          ))}
-        </Section>
-
-        <Section title="Crossfade" subtitle="Let one song melt into the next">
-          <div className="flex items-center gap-4">
-            <span className="text-[12px] text-spotify-text-subdued w-8">Off</span>
-            <input
-              type="range"
-              min="0"
-              max="12"
-              step="1"
-              value={Number(settings.crossfadeDuration) || 0}
-              onChange={(e) => writeAppSetting('crossfadeDuration', Number(e.target.value))}
-              aria-label="Crossfade duration in seconds"
-              className="slider flex-1"
-            />
-            <span className="w-10 text-right text-[13px] font-bold tabular-nums text-white">
-              {Number(settings.crossfadeDuration) > 0 ? `${settings.crossfadeDuration}s` : '0s'}
-            </span>
-          </div>
-        </Section>
-
-        <Section title="Playback" subtitle="Autoplay and display options" inset>
+        {/* Media quality — everything about HOW the stream sounds and what the
+            track rows advertise about it. Bitrate used to be its own top-level
+            section and the two badges were stranded under "Playback", which had
+            nothing to do with either. */}
+        <Section title="Media quality" subtitle="Streaming bitrate and what's shown on tracks" inset>
+          <SubGroup label="Sound quality" value={QUALITIES.find((q) => Number(settings.audioQuality) === q.value)?.label}>
+            {QUALITIES.map((q) => (
+              <Choice
+                key={q.value}
+                label={q.label}
+                hint={q.hint}
+                selected={Number(settings.audioQuality) === q.value}
+                onClick={() => writeAppSetting('audioQuality', q.value)}
+              />
+            ))}
+          </SubGroup>
           <Toggle
-            label="Autoplay"
-            hint="When your queue ends, keep playing songs similar to what you were listening to"
-            checked={!!settings.autoplay}
-            onChange={(v) => writeAppSetting('autoplay', v)}
-          />
-          <Toggle
-            label="Normalize Volume"
-            hint="Even out loud and quiet parts for a more consistent listening volume"
-            checked={!!settings.normalizeVolume}
-            onChange={(v) => writeAppSetting('normalizeVolume', v)}
-          />
-          <Toggle
-            label="Show Source Badge"
-            hint="Display the source indicator (JioSaavn, SoundCloud) on tracks"
+            label="Source badge"
+            hint="Show where each track streams from (JioSaavn, SoundCloud, YouTube)"
             checked={!!settings.showSourceBadge}
             onChange={(v) => writeAppSetting('showSourceBadge', v)}
           />
           <Toggle
-            label="Show Quality Badge"
-            hint="Show the streaming bitrate (e.g. 320) on the now-playing screen"
+            label="Quality badge"
+            hint="Show the live bitrate (e.g. 320 kbps) on the now-playing screen"
             checked={!!settings.showQualityBadge}
             onChange={(v) => writeAppSetting('showQualityBadge', v)}
           />
         </Section>
 
-        <StorageSection />
-
-        <Section title="Sources">
-          <div className="flex items-start gap-3 py-1">
-            <Info size={18} className="text-spotify-text-subdued shrink-0 mt-0.5" />
-            <div className="min-w-0">
-              <p className="text-[14px]">JioSaavn · SoundCloud</p>
-              <p className="text-[12px] text-spotify-text-subdued mt-1 leading-snug">
-                Everything runs on your phone, using your own connection — nothing is
-                routed through a server. JioSaavn streams at 320 kbps.
-              </p>
+        {/* Sound — everything that shapes the audio itself. */}
+        <Section title="Sound" subtitle="Equalizer, crossfade and levels" inset>
+          <EqualizerGroup settings={settings} />
+          <SubGroup
+            label="Crossfade"
+            value={Number(settings.crossfadeDuration) > 0 ? `${settings.crossfadeDuration}s` : 'Off'}
+          >
+            <p className="pb-2 pt-1 text-[11.5px] leading-snug text-spotify-text-subdued">
+              Let one song melt into the next instead of stopping dead.
+            </p>
+            <div className="flex items-center gap-3 pb-3">
+              <span className="w-7 text-[11px] text-spotify-text-subdued">Off</span>
+              <input
+                type="range"
+                min="0"
+                max="12"
+                step="1"
+                value={Number(settings.crossfadeDuration) || 0}
+                onChange={(e) => writeAppSetting('crossfadeDuration', Number(e.target.value))}
+                aria-label="Crossfade duration in seconds"
+                className="slider flex-1"
+              />
+              <span className="w-8 text-right text-[12px] font-bold tabular-nums text-white">
+                {Number(settings.crossfadeDuration) || 0}s
+              </span>
             </div>
-          </div>
-          <YouTubeExperimentalToggle />
+          </SubGroup>
+          <Toggle
+            label="Normalize volume"
+            hint="Even out loud and quiet tracks so you're not reaching for the dial"
+            checked={!!settings.normalizeVolume}
+            onChange={(v) => writeAppSetting('normalizeVolume', v)}
+          />
         </Section>
+
+        <Section title="Playback" inset>
+          <Toggle
+            label="Autoplay"
+            hint="When the queue ends, keep playing songs similar to what you were listening to"
+            checked={!!settings.autoplay}
+            onChange={(v) => writeAppSetting('autoplay', v)}
+          />
+        </Section>
+
+        <SourcesSection />
+
+        <StorageSection />
 
         <UpdateSection />
 
@@ -329,9 +372,149 @@ function StorageSection() {
 }
 
 /**
- * Experimental YouTube. Off by default. Enabling runs an on-device self-test
- * (extract a real video through the WebView's V8), and only flips on if that
- * genuinely works — so we never promise YouTube on a device that can't do it.
+ * Graphic equalizer.
+ *
+ * Real Web Audio filters, not a decoration — see utils/eq.js for the band layout
+ * and PlayerContext for the graph. Picking a preset writes its curve; dragging
+ * any band switches you to Custom, because a curve that no longer matches "Rock"
+ * shouldn't keep claiming to be Rock.
+ *
+ * Dolby Atmos is deliberately absent. Atmos is an OEM DSP that Android exposes to
+ * NATIVE audio sessions, and our audio is an <audio> element inside a WebView —
+ * there is no handle to reach it with. Where a phone applies Atmos system-wide it
+ * still applies here, downstream of us; we just can't offer a switch for it, and
+ * a fake one would be worse than none.
+ */
+function EqualizerGroup({ settings }) {
+  const enabled = !!settings.eqEnabled;
+  const gains = resolveGains(settings);
+  const activeLabel = EQ_PRESETS.find((p) => p.id === settings.eqPreset)?.label || 'Custom';
+
+  // Dragging a band always lands in Custom, seeded from whatever is on screen —
+  // so nudging one band of "Rock" keeps the other seven where they were.
+  const setBand = (i, db) => {
+    const next = normalizeGains(gains);
+    next[i] = db;
+    writeAppSettings({ ...settings, eqEnabled: true, eqPreset: 'custom', eqGains: next });
+  };
+
+  const pickPreset = (id) => {
+    const curve = presetGains(id);
+    writeAppSettings({
+      ...settings,
+      eqEnabled: true,
+      eqPreset: id,
+      // Entering Custom from a preset carries that preset's curve across, so the
+      // sliders don't snap to flat the moment you tap Custom.
+      eqGains: curve ? normalizeGains(curve) : normalizeGains(gains),
+    });
+  };
+
+  return (
+    <>
+      <Toggle
+        label="Equalizer"
+        hint="Shape the sound across eight frequency bands"
+        checked={enabled}
+        onChange={(v) => writeAppSetting('eqEnabled', v)}
+      />
+      {enabled && (
+        <SubGroup label="Preset" value={activeLabel} defaultOpen>
+          <div className="rail py-2 pl-2">
+            {EQ_PRESETS.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => pickPreset(p.id)}
+                className={`shrink-0 rounded-full px-3 py-1.5 text-[12px] whitespace-nowrap transition-colors duration-fast ${
+                  settings.eqPreset === p.id
+                    ? 'bg-white font-semibold text-black'
+                    : 'bg-white/10 text-white'
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Vertical sliders, one per band. `writing-mode` is the native way to
+              stand an <input type=range> on end — no custom drag handling, and it
+              keeps the OS's own accessibility and touch targets. */}
+          <div className="flex items-end justify-between gap-1 px-2 pb-1 pt-3">
+            {EQ_BANDS.map((hz, i) => (
+              <div key={hz} className="flex flex-1 flex-col items-center gap-1.5">
+                <span className="text-[9.5px] tabular-nums text-spotify-text-subdued">
+                  {gains[i] > 0 ? `+${gains[i]}` : gains[i]}
+                </span>
+                <input
+                  type="range"
+                  min={EQ_MIN_DB}
+                  max={EQ_MAX_DB}
+                  step="1"
+                  value={gains[i]}
+                  onChange={(e) => setBand(i, Number(e.target.value))}
+                  aria-label={`${bandLabel(hz)} hertz, ${gains[i]} decibels`}
+                  className="slider slider-v"
+                  style={{ writingMode: 'vertical-lr', direction: 'rtl', width: '20px', height: '104px' }}
+                />
+                <span className="text-[9.5px] text-spotify-text-subdued">{bandLabel(hz)}</span>
+              </div>
+            ))}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => pickPreset('flat')}
+            className="tap mb-2 ml-2 rounded-full bg-white/10 px-3 py-1.5 text-[11.5px] text-spotify-text-subdued"
+          >
+            Reset to flat
+          </button>
+        </SubGroup>
+      )}
+    </>
+  );
+}
+
+/**
+ * All three sources in ONE place.
+ *
+ * JioSaavn and SoundCloud have no switch because there is nothing to switch:
+ * they need no setup and never fail to start, so a toggle would only ever offer
+ * the user a way to make the app worse. They're listed anyway — a "Sources"
+ * screen that shows one of the three sources is a screen that looks broken.
+ */
+const ALWAYS_ON = [
+  { name: 'JioSaavn', hint: 'Primary catalogue · streams at 320 kbps', dot: 'bg-[#1ed760]' },
+  { name: 'SoundCloud', hint: 'Remixes, sets and independent uploads', dot: 'bg-[#ff7733]' },
+];
+
+function SourcesSection() {
+  return (
+    <Section title="Sources" subtitle="Where your music is streamed from" inset>
+      {ALWAYS_ON.map((s) => (
+        <div key={s.name} className="flex items-center gap-3 py-3">
+          <span className={`h-2 w-2 shrink-0 rounded-full ${s.dot}`} />
+          <div className="min-w-0 flex-1">
+            <p className="text-[14px]">{s.name}</p>
+            <p className="mt-0.5 text-[11.5px] leading-snug text-spotify-text-subdued">{s.hint}</p>
+          </div>
+          <span className="shrink-0 text-[12px] text-spotify-text-subdued">Always on</span>
+        </div>
+      ))}
+      <YouTubeExperimentalToggle />
+      <p className="py-3 text-[11.5px] leading-snug text-spotify-text-subdued">
+        Everything runs on your phone over your own connection — nothing is routed
+        through a server.
+      </p>
+    </Section>
+  );
+}
+
+/**
+ * YouTube. Off by default. Enabling runs a real on-device self-test (resolve an
+ * actual audio stream, which is the part that needs the signature challenge
+ * solved), and only flips on if that genuinely works — so the app never promises
+ * YouTube on a device that can't deliver it.
  */
 function YouTubeExperimentalToggle() {
   const [state, setState] = useState(null);   // { supported, enabled }
@@ -362,23 +545,22 @@ function YouTubeExperimentalToggle() {
 
   // Reuses the same Toggle every other setting on this screen uses. It used to be
   // a bespoke switch with its own sizing, which is why it sat differently and its
-  // knob slid past the edge of the track.
+  // knob slid past the edge of the track. The Section's own divider separates it
+  // from the rows above, so it needs no border of its own.
   return (
-    <div className="mt-3 border-t border-white/10 pt-1">
-      <Toggle
-        label="YouTube"
-        hint={
-          busy
-            ? 'Checking your device…'
-            : state.supported
-              ? 'Adds YouTube as a search and download source. No sign-in needed.'
-              : 'The YouTube extractor could not start on this device.'
-        }
-        checked={!!state.enabled}
-        disabled={busy || !state.supported}
-        onChange={toggle}
-      />
-    </div>
+    <Toggle
+      label="YouTube"
+      hint={
+        busy
+          ? 'Checking your device…'
+          : state.supported
+            ? 'Adds YouTube as a search and download source. No sign-in needed.'
+            : 'The YouTube extractor could not start on this device.'
+      }
+      checked={!!state.enabled}
+      disabled={busy || !state.supported}
+      onChange={toggle}
+    />
   );
 }
 
@@ -418,18 +600,27 @@ function UpdateSection() {
             text changes between states — that reflow is what made the screen
             appear to "jump" when Check again was tapped. */}
         <div className="min-w-0 flex-1 min-h-[48px]">
-          <p className="text-[14px]">
-            {state === 'found'
-              ? `Version ${info.version} is available`
-              : `You're on version ${version || '—'}`}
-          </p>
+          {/* Both versions, always — "Version 1.3.1 is available" on its own left
+              you wondering what you were actually on. */}
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="text-[13.5px] text-spotify-text-subdued">Installed</span>
+            <span className="text-[13.5px] font-semibold tabular-nums">{version || '—'}</span>
+          </div>
+          {state === 'found' && info?.version && (
+            <div className="mt-1 flex items-baseline justify-between gap-3">
+              <span className="text-[13.5px] text-spotify-text-subdued">Latest</span>
+              <span className="text-[13.5px] font-semibold tabular-nums text-spotify-essential-bright-accent">
+                {info.version}
+              </span>
+            </div>
+          )}
 
-          <p className="text-[12px] text-spotify-text-subdued mt-1 leading-snug">
+          <p className="text-[11.5px] text-spotify-text-subdued mt-2 leading-snug">
             {state === 'checking' && 'Checking for updates…'}
             {state === 'current' && "You're up to date."}
             {state === 'failed' && 'Update failed. Check your connection and try again.'}
             {state === 'found' &&
-              'Updating installs over the current app — your playlists, liked songs and history are kept.'}
+              'Installs over the current app — your playlists, liked songs and history are kept.'}
             {state === 'downloading' && `Downloading… ${pct}%`}
           </p>
 

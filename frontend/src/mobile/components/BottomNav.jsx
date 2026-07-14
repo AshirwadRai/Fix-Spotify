@@ -18,7 +18,18 @@ const TABS = [
  */
 export function BottomNav({ active, onChange }) {
   return (
-    <nav className="shrink-0 border-t border-white/[0.06] bg-spotify-base/70 backdrop-blur-xl pb-safe">
+    // Darker and properly glassy: a near-black translucent pane over a heavy
+    // blur, with a hairline of light along the top edge to lift it off the
+    // content behind. `saturate` is what stops the blurred artwork underneath
+    // going grey and muddy — it's the difference between frosted glass and fog.
+    <nav
+      className="shrink-0 border-t border-white/[0.09] pb-safe"
+      style={{
+        backgroundColor: 'rgba(9, 9, 11, 0.72)',
+        backdropFilter: 'blur(24px) saturate(180%)',
+        WebkitBackdropFilter: 'blur(24px) saturate(180%)',
+      }}
+    >
       <div className="flex items-stretch">
         {TABS.map(({ id, label, Icon }) => {
           const isActive = active === id;

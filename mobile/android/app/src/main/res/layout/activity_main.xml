@@ -10,7 +10,13 @@
         android:layout_height="match_parent" />
 
     <!-- Covers the WebView until React paints. Booting CPython takes a few
-         seconds on first launch, and a blank white rectangle reads as a crash. -->
+         seconds on first launch, and a blank white rectangle reads as a crash.
+
+         The icon and the name, centred, and nothing else. The spinner and the
+         "starting the music engine" line were narrating our own startup at the
+         user — they don't care that there's a Python backend, and a progress
+         indicator with no progress to report only makes the wait feel longer.
+         A still, confident logo reads as fast; a spinner reads as stuck. -->
     <LinearLayout
         android:id="@+id/splash"
         android:layout_width="match_parent"
@@ -20,32 +26,19 @@
         android:orientation="vertical">
 
         <ImageView
-            android:layout_width="96dp"
-            android:layout_height="96dp"
+            android:layout_width="112dp"
+            android:layout_height="112dp"
             android:src="@mipmap/ic_launcher"
             android:contentDescription="@string/app_name" />
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:text="@string/app_name"
+            android:layout_marginTop="20dp"
+            android:letterSpacing="0.01"
+            android:text="@string/splash_title"
             android:textColor="#FFFFFF"
-            android:textSize="22sp"
+            android:textSize="21sp"
             android:textStyle="bold" />
-
-        <ProgressBar
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="28dp"
-            android:indeterminateTint="#1DB954" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="@string/starting_backend"
-            android:textColor="#A7A7A7"
-            android:textSize="13sp" />
     </LinearLayout>
 </FrameLayout>

@@ -229,6 +229,27 @@
   background: #fff;
 }
 
+/* The equalizer's vertical bands.
+   `writing-mode: vertical-lr` (set inline) is what stands the range on end —
+   the browser's own rotation, so the thumb still tracks the finger correctly
+   and the OS keeps its accessibility semantics. Rotating with a transform
+   would leave the hit area lying on its side. Only the track needs re-sizing:
+   in vertical mode the runnable track's `height` becomes its length, so width
+   is what makes it a thin column. */
+.slider-v {
+  height: 104px;
+  width: 20px;
+}
+.slider-v::-webkit-slider-runnable-track {
+  width: 4px;
+  height: 100%;
+  border-radius: 2px;
+}
+.slider-v::-webkit-slider-thumb {
+  margin-top: 0;
+  margin-left: -5px;
+}
+
 /* Marquee for long titles in the mini-player. */
 @keyframes marquee {
   0%,

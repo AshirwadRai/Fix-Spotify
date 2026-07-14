@@ -136,7 +136,7 @@ export function SearchTab({ onMenu, onOpenArtist, onOpenAlbum, onImportSpotify }
       {/* Search bar */}
       <div className="pt-safe shrink-0 bg-spotify-black">
         <div className="px-4 pt-4 pb-3">
-          <h1 className="text-[26px] font-extrabold tracking-tight mb-3">Search</h1>
+          <h1 className="text-[27px] font-black tracking-[-0.02em] mb-3">Search</h1>
           <form
             onSubmit={(e) => { e.preventDefault(); runSearch(query); }}
             className="relative"

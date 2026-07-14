@@ -86,7 +86,7 @@ export function HomeTab({ onHomeItem, onOpenSettings, updateDot = false }) {
     <div className="scroll-y h-full">
       <div className="pt-safe">
         <div className="flex items-center justify-between px-4 pt-4 pb-2">
-          <h1 className="text-[26px] font-extrabold tracking-tight">{greeting}</h1>
+          <h1 className="text-[27px] font-black tracking-[-0.02em]">{greeting}</h1>
           <button
             type="button"
             aria-label="Settings"

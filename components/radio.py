@@ -7,12 +7,15 @@ Pipeline (all on-demand, nothing pre-loaded):
 1. Last.fm `track.getSimilar` gives song NAMES similar to the seed
    (collaborative-filtering from real listening data — works well for both
    Western and Indian/Bollywood music).
-2. Each similar name is resolved to a streamable track via the JioSaavn client
-   + SourceMerger we already use for search.
+2. Each similar name is resolved to a streamable track — JioSaavn first (cleanest
+   catalogue, 320k), then SoundCloud and YouTube for the names it doesn't carry.
 
-ponytail: JioSaavn-only resolution — it's our best/fastest playable source.
-Ceiling: songs not on JioSaavn are silently skipped (we over-fetch to cover it).
-Upgrade path: fall back to YouTube/SoundCloud search for unresolved names.
+Resolution used to be JioSaavn-only, which quietly made the radio a mirror of
+JioSaavn's catalogue rather than of what you were listening to: every similar
+song missing from it was dropped, so seeding from anything outside its library
+returned a few tracks and then ran dry. The other sources are only queried for
+the names JioSaavn missed, and only while we're still short of `limit`, so the
+common case costs exactly what it did before.
 """
 
 import os
@@ -145,6 +148,27 @@ def _diversify(tracks, limit, max_per_artist=3):
     return out[:limit]
 
 
+_service = None
+
+
+def _svc():
+    """The shared search service.
+
+    Radio goes through it rather than importing source clients directly, so it
+    inherits whatever gating the host has applied — most importantly, the Android
+    build swaps in a NewPipe-backed YouTube client and refuses to build one at all
+    while the user has YouTube switched off. Reaching for YouTubeClient here
+    directly would bypass both and fall back to yt-dlp, which cannot extract
+    YouTube on a phone.
+    """
+    global _service
+    if _service is None:
+        from components.unified_search import UnifiedSearchService
+
+        _service = UnifiedSearchService()
+    return _service
+
+
 def _resolve(pair):
     """Resolve one (name, artist) to a raw JioSaavn result dict, or None."""
     name, art = pair
@@ -157,13 +181,59 @@ def _resolve(pair):
     return None
 
 
+def _resolve_elsewhere(pair):
+    """A name JioSaavn didn't have — try the other sources before giving up.
+
+    This is the difference between a radio that reflects what you're listening to
+    and one that reflects JioSaavn's catalogue. Last.fm's similar-track list is
+    genuinely good across Western and Indian music, but every name missing from
+    JioSaavn used to be dropped on the floor — so seeding from, say, a metal track
+    returned a handful of songs and then dried up.
+
+    SoundCloud is tried before YouTube: it's cheaper to search and its hits are
+    already direct streams. Either returns None when the host has it disabled.
+    """
+    from components.source_merger import SourceType
+
+    name, art = pair
+    q = f"{name} {art}".strip()
+    for source_type, label in (
+        (SourceType.SOUNDCLOUD, "soundcloud"),
+        (SourceType.YOUTUBE, "youtube"),
+    ):
+        try:
+            client = _svc()._get_client(source_type)
+            if client is None:
+                continue          # source switched off on this device
+            hits = client.search(q, 1)
+            if hits:
+                return {"source_type": label, **hits[0].to_dict()}
+        except Exception:
+            continue
+    return None
+
+
 def resolve_radio(title, artist, limit=12):
     """Return up to `limit` playable similar tracks as plain dicts
     (UnifiedTrack.to_dict shape, ready for the frontend to queue)."""
     pairs = lastfm_similar(title, artist, limit + 12)  # over-fetch for skips + diversity
 
     with ThreadPoolExecutor(max_workers=8) as ex:
-        raw = [r for r in ex.map(_resolve, pairs) if r] if pairs else []
+        resolved = list(ex.map(_resolve, pairs)) if pairs else []
+
+    raw = [r for r in resolved if r]
+
+    # Only the names JioSaavn missed go to the slower sources, and only when we're
+    # actually short — searching SoundCloud/YouTube for 20 names we don't need
+    # would add seconds to every radio fetch for nothing.
+    if len(raw) < limit:
+        missed = [p for p, r in zip(pairs, resolved) if not r]
+        need = limit - len(raw)
+        if missed and need > 0:
+            with ThreadPoolExecutor(max_workers=6) as ex:
+                for extra in ex.map(_resolve_elsewhere, missed[: need + 4]):
+                    if extra:
+                        raw.append(extra)
 
     # Fallback: Last.fm had nothing (obscure/regional track). Pull more songs
     # by the same primary artist straight from JioSaavn so radio still flows.
@@ -185,7 +255,14 @@ def resolve_radio(title, artist, limit=12):
     if not raw:
         return []
 
-    merged = SourceMerger().merge_search_results(jiosaavn_results=raw)
+    # The merger takes one list per source, so bucket by where each hit came from.
+    # Passing a SoundCloud dict in as jiosaavn_results would mis-key its URL and
+    # the track would come out unplayable.
+    buckets = {}
+    for r in raw:
+        buckets.setdefault(f"{r.get('source_type', 'jiosaavn')}_results", []).append(r)
+
+    merged = SourceMerger().merge_search_results(**buckets)
     # Keep only tracks that ended up with a real playable source
     out = [t.to_dict() for t in merged if getattr(t, "primary_source", None)]
     # Interleave artists + cap per-artist so the radio doesn't loop one artist.

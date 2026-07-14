@@ -1,5 +1,6 @@
-import { useState, useMemo } from 'react';
-import { Heart, Plus, Music2, ArrowDownToLine, Disc3, ChevronRight } from 'lucide-react';
+import { useState, useMemo, useCallback } from 'react';
+import { Heart, Plus, Music2, ArrowDownToLine, Disc3, Pin } from 'lucide-react';
+import { usePins, togglePin, rowId, sortPinned, MAX_PINS } from '../../utils/pins';
 import { useLikedSongs } from '../../utils/likes';
 import { useSavedCollections } from '../../utils/collections';
 import { useOfflineTracks } from '../../utils/downloads';
@@ -39,12 +40,30 @@ export function LibraryTab({ onOpenList, onOpenCollection }) {
     [offlineMap]
   );
 
+  // Pins float their row to the top of its own group (playlists stay among
+  // playlists), which keeps the filter chips meaningful — a pinned album jumping
+  // into the Playlists list would just be confusing.
+  const pins = usePins();
+  const pin = useCallback((id) => {
+    const res = togglePin(id);
+    if (res === 'full') toast(`You can pin up to ${MAX_PINS} — unpin one first`);
+  }, []);
+
   const showPlaylists = filter === 'all' || filter === 'playlists';
   // Saved collections hold both albums and artists; split them by type.
   const albums = collections.filter((c) => c.type !== 'artist');
   const artists = collections.filter((c) => c.type === 'artist');
   const showAlbums = filter === 'all' || filter === 'albums';
   const showArtists = filter === 'all' || filter === 'artists';
+
+  const sortedPlaylists = useMemo(
+    () => sortPinned(playlists, pins, (p) => rowId('playlist', p)),
+    [playlists, pins]
+  );
+  const sortedAlbums = useMemo(
+    () => sortPinned(albums, pins, (c) => rowId('album', c)),
+    [albums, pins]
+  );
 
   const submitNew = (e) => {
     e.preventDefault();
@@ -59,7 +78,7 @@ export function LibraryTab({ onOpenList, onOpenCollection }) {
     <div className="flex flex-col h-full">
       <div className="pt-safe shrink-0">
         <div className="flex items-center justify-between px-4 pt-4 pb-3">
-          <h1 className="text-[26px] font-extrabold tracking-tight">Your Library</h1>
+          <h1 className="text-[27px] font-black tracking-[-0.02em]">Your Library</h1>
           <button
             type="button"
             aria-label="Create playlist"
@@ -154,41 +173,51 @@ export function LibraryTab({ onOpenList, onOpenCollection }) {
         )}
 
         {showPlaylists &&
-          playlists.map((p) => (
-            <Row
-              key={p.id}
-              Icon={Music2}
-              cover={
-                <PlaylistCover tracks={p.tracks || []} image={p.image} size={56} />
-              }
-              title={p.name}
-              // Green title while a song from this playlist is playing — same
-              // signal a playing song row gives.
-              active={!!currentTrack && (p.tracks || []).some((t) => sameTrack(t, currentTrack))}
-              subtitle={`Playlist · ${(p.tracks || []).length} songs`}
-              onClick={() =>
-                onOpenList({
-                  kind: 'playlist',
-                  id: p.id,
-                  title: p.name,
-                  image: p.image,
-                  tracks: p.tracks || [],
-                })
-              }
-            />
-          ))}
+          sortedPlaylists.map((p) => {
+            const id = rowId('playlist', p);
+            return (
+              <Row
+                key={p.id}
+                Icon={Music2}
+                cover={
+                  <PlaylistCover tracks={p.tracks || []} image={p.image} size={56} />
+                }
+                title={p.name}
+                // Green title while a song from this playlist is playing — same
+                // signal a playing song row gives.
+                active={!!currentTrack && (p.tracks || []).some((t) => sameTrack(t, currentTrack))}
+                subtitle={`Playlist · ${(p.tracks || []).length} songs`}
+                pinned={pins.includes(id)}
+                onTogglePin={() => pin(id)}
+                onClick={() =>
+                  onOpenList({
+                    kind: 'playlist',
+                    id: p.id,
+                    title: p.name,
+                    image: p.image,
+                    tracks: p.tracks || [],
+                  })
+                }
+              />
+            );
+          })}
 
         {showAlbums &&
-          albums.map((c, i) => (
-            <Row
-              key={`al-${c.name}-${i}`}
-              image={c.image}
-              Icon={Disc3}
-              title={cleanText(c.name)}
-              subtitle={`${c.type || 'Album'} · ${cleanText(c.artist) || 'Various'}`}
-              onClick={() => onOpenCollection(c)}
-            />
-          ))}
+          sortedAlbums.map((c, i) => {
+            const id = rowId('album', c);
+            return (
+              <Row
+                key={`al-${c.name}-${i}`}
+                image={c.image}
+                Icon={Disc3}
+                title={cleanText(c.name)}
+                subtitle={`${c.type || 'Album'} · ${cleanText(c.artist) || 'Various'}`}
+                pinned={pins.includes(id)}
+                onTogglePin={() => pin(id)}
+                onClick={() => onOpenCollection(c)}
+              />
+            );
+          })}
 
         {showArtists &&
           artists.map((c, i) => (
@@ -219,36 +248,68 @@ export function LibraryTab({ onOpenList, onOpenCollection }) {
   );
 }
 
-// `cover` is an escape hatch for a rendered element (the playlist mosaic);
-// `image` stays the simple URL path used by albums.
-function Row({ image, cover, Icon, gradient, filled, rounded, title, subtitle, active = false, onClick }) {
+/**
+ * A library row.
+ *
+ * The trailing chevron is gone. It said nothing — every row here opens, so an
+ * affordance on all of them carries no information — and it was occupying the one
+ * bit of space worth having. A pin button lives there now: subdued when off,
+ * accent when pinned, and absent entirely on rows that can't be pinned (Liked
+ * Songs and Downloaded are already fixed at the top).
+ *
+ * `cover` is an escape hatch for a rendered element (the playlist mosaic);
+ * `image` stays the simple URL path used by albums.
+ */
+function Row({
+  image, cover, Icon, gradient, filled, rounded, title, subtitle,
+  active = false, onClick, pinned = null, onTogglePin,
+}) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="tap w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors duration-fast active:bg-white/5"
-    >
-      <div
-        className={`w-14 h-14 overflow-hidden shrink-0 flex items-center justify-center ${
-          rounded ? 'rounded-full' : 'rounded'
-        } ${gradient ? `bg-gradient-to-br ${gradient}` : 'bg-spotify-highlight'}`}
+    <div className="flex items-center gap-1 pr-2 transition-colors duration-fast active:bg-white/5">
+      <button
+        type="button"
+        onClick={onClick}
+        className="tap flex flex-1 min-w-0 items-center gap-3 py-2.5 pl-4 text-left"
       >
-        {cover || (image ? (
-          <img src={image} alt="" className="w-full h-full object-cover" />
-        ) : (
-          <Icon
-            size={22}
-            className={gradient ? 'text-white' : 'text-spotify-text-subdued'}
-            fill={filled ? 'white' : 'none'}
+        <div
+          className={`w-14 h-14 overflow-hidden shrink-0 flex items-center justify-center ${
+            rounded ? 'rounded-full' : 'rounded'
+          } ${gradient ? `bg-gradient-to-br ${gradient}` : 'bg-spotify-highlight'}`}
+        >
+          {cover || (image ? (
+            <img src={image} alt="" className="w-full h-full object-cover" />
+          ) : (
+            <Icon
+              size={22}
+              className={gradient ? 'text-white' : 'text-spotify-text-subdued'}
+              fill={filled ? 'white' : 'none'}
+            />
+          ))}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className={`text-[14px] truncate ${active ? 'text-spotify-essential-bright-accent' : ''}`}>
+            {title}
+          </p>
+          <p className="text-[11.5px] text-spotify-text-subdued truncate">{subtitle}</p>
+        </div>
+      </button>
+
+      {pinned !== null && (
+        <button
+          type="button"
+          aria-label={pinned ? `Unpin ${title}` : `Pin ${title}`}
+          aria-pressed={pinned}
+          onClick={onTogglePin}
+          className="tap shrink-0 p-2"
+        >
+          <Pin
+            size={16}
+            className={pinned ? 'text-spotify-essential-bright-accent' : 'text-spotify-essential-subdued'}
+            fill={pinned ? 'currentColor' : 'none'}
           />
-        ))}
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className={`text-[15px] truncate ${active ? 'text-spotify-essential-bright-accent' : ''}`}>{title}</p>
-        <p className="text-[13px] text-spotify-text-subdued truncate">{subtitle}</p>
-      </div>
-      <ChevronRight size={18} className="text-spotify-essential-subdued shrink-0" />
-    </button>
+        </button>
+      )}
+    </div>
   );
 }
 

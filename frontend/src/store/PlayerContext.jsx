@@ -4,6 +4,7 @@ import { readAppSettings, qualityToBitrate } from '../utils/settings';
 import { apiUrl } from '../utils/config';
 import { getOfflineEntry, removeOfflineEntry } from '../utils/downloads';
 import { insertQueued } from '../utils/queue';
+import { EQ_BANDS, resolveGains, isFlat } from '../utils/eq';
 import { api } from '../api';
 
 const PlayerContext = createContext();
@@ -393,18 +394,47 @@ export function PlayerProvider({ children }) {
   // ─── Volume normalization (Web Audio) ───────────────────────────────
   // Built lazily and ONLY when the user enables it, so the default path
   // never routes audio through Web Audio (zero risk of breaking playback).
+  // source → [EQ bands] → compressor → gain → out.
+  //
+  // The EQ filters sit in the chain unconditionally, but at 0dB a peaking filter
+  // is a pass-through — so an untouched EQ costs nothing audible and the graph
+  // never has to be rewired when the user turns it on.
   const buildAudioChain = useCallback((el, ctx) => {
     try {
       const source = ctx.createMediaElementSource(el);
+      const filters = EQ_BANDS.map((hz) => {
+        const f = ctx.createBiquadFilter();
+        f.type = 'peaking';
+        f.frequency.value = hz;
+        f.Q.value = 1.1;   // wide enough that eight bands overlap into a smooth curve
+        f.gain.value = 0;
+        return f;
+      });
       const compressor = ctx.createDynamicsCompressor();
       const gain = ctx.createGain();
-      source.connect(compressor);
+
+      // Chain the filters in series, then into the compressor.
+      const last = filters.reduce((prev, f) => { prev.connect(f); return f; }, source);
+      last.connect(compressor);
       compressor.connect(gain);
       gain.connect(ctx.destination);
-      return { source, compressor, gain };
+      return { source, filters, compressor, gain };
     } catch {
       return null;
     }
+  }, []);
+
+  const applyEq = useCallback((chain, gains) => {
+    if (!chain?.filters) return;
+    chain.filters.forEach((f, i) => {
+      try {
+        // setTargetAtTime, not a raw assignment: stepping a filter's gain
+        // instantly puts a click through the speaker. This glides it over ~20ms.
+        f.gain.setTargetAtTime(gains[i] ?? 0, f.context.currentTime, 0.02);
+      } catch {
+        try { f.gain.value = gains[i] ?? 0; } catch { /* node gone */ }
+      }
+    });
   }, []);
 
   const ensureAudioGraph = useCallback(() => {
@@ -454,18 +484,26 @@ export function PlayerProvider({ children }) {
 
   useEffect(() => {
     const apply = () => {
-      const enabled = !!readAppSettings().normalizeVolume;
-      // If it's off and we never built the graph, do nothing (keep zero-risk path).
-      if (!enabled && !audioCtxRef.current) return;
+      const settings = readAppSettings();
+      const normalize = !!settings.normalizeVolume;
+      const gains = resolveGains(settings);
+      const eqActive = !isFlat(gains);
+
+      // Neither feature in use and no graph yet → don't build one. The default
+      // path stays entirely outside Web Audio, which is the zero-risk route:
+      // createMediaElementSource is irreversible and has bitten WebViews before.
+      if (!normalize && !eqActive && !audioCtxRef.current) return;
       if (!ensureAudioGraph()) return;
       resumeAudioCtx();
-      applyNormalization(mainChainRef.current, enabled);
-      applyNormalization(crossfadeChainRef.current, enabled);
+      applyNormalization(mainChainRef.current, normalize);
+      applyNormalization(crossfadeChainRef.current, normalize);
+      applyEq(mainChainRef.current, gains);
+      applyEq(crossfadeChainRef.current, gains);
     };
     apply();
     window.addEventListener('appsettingschange', apply);
     return () => window.removeEventListener('appsettingschange', apply);
-  }, [ensureAudioGraph, applyNormalization, resumeAudioCtx]);
+  }, [ensureAudioGraph, applyNormalization, applyEq, resumeAudioCtx]);
 
   // ─── Crossfade logic ────────────────────────────────────────────
   const startCrossfade = useCallback((crossfadeDuration) => {
