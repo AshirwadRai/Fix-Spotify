@@ -349,10 +349,31 @@ function Shell() {
             <SettingsTab onClose={() => setSettingsOpen(false)} />
           </div>
         )}
-      </main>
 
-      <MiniPlayer onExpand={openNowPlaying} />
-      <BottomNav active={tab} onChange={changeTab} />
+        {/* The bars FLOAT over the scroll region rather than sitting below it in
+            the flex column.
+
+            That is what makes the nav's frosted glass real. `backdrop-filter`
+            blurs whatever is painted BEHIND an element — and while the bars were
+            siblings of <main>, the only thing behind them was the page's solid
+            black, so the blur had nothing to work on and the "glass" was a lie.
+            Now the content genuinely passes underneath.
+
+            Every scroll region inside <main> carries `pb-bars` to clear them, so
+            nothing is hidden behind the glass. Sitting inside <main> (z-30, above
+            the z-20 sheets) also keeps them visible on every screen except the
+            full player, exactly as before.
+
+            pointer-events: the wrapper spans the full width including the
+            mini-player's side gutters, so it must not swallow taps that land in
+            them — the bars themselves take pointer events back. */}
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30">
+          <div className="pointer-events-auto">
+            <MiniPlayer onExpand={openNowPlaying} />
+            <BottomNav active={tab} onChange={changeTab} />
+          </div>
+        </div>
+      </main>
 
       {/* The full-screen immersive player DOES cover the bars — intentionally. */}
       <NowPlayingSheet

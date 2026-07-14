@@ -148,7 +148,7 @@ export function LibraryTab({ onOpenList, onOpenCollection }) {
         </div>
       </div>
 
-      <div className="scroll-y flex-1">
+      <div className="scroll-y pb-bars flex-1">
         {/* Pinned: Liked Songs + Offline. Both are real, openable lists. */}
         {filter === 'all' && (
           <>

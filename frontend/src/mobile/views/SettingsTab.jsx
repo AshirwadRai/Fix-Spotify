@@ -148,7 +148,7 @@ export function SettingsTab({ onClose }) {
         </div>
       </div>
 
-      <div className="scroll-y flex-1">
+      <div className="scroll-y pb-bars flex-1">
         {/* Media quality — everything about HOW the stream sounds and what the
             track rows advertise about it. Bitrate used to be its own top-level
             section and the two badges were stranded under "Playback", which had

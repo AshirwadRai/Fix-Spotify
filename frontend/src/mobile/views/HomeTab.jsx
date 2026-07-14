@@ -83,7 +83,7 @@ export function HomeTab({ onHomeItem, onOpenSettings, updateDot = false }) {
   })();
 
   return (
-    <div className="scroll-y h-full">
+    <div className="scroll-y pb-bars h-full">
       <div className="pt-safe">
         <div className="flex items-center justify-between px-4 pt-4 pb-2">
           <h1 className="text-[27px] font-black tracking-[-0.02em]">{greeting}</h1>

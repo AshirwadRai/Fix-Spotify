@@ -145,7 +145,7 @@ export function CollectionSheet({ target, onClose, onMenu, onOpenArtist, onOpenA
 
       {/* The hero now lives INSIDE the scroll region, so it travels away with
           the content instead of being pinned above it. */}
-      <div className="scroll-y flex-1 -mt-14" onScroll={onScroll}>
+      <div className="scroll-y pb-bars flex-1 -mt-14" onScroll={onScroll}>
         <div
           className="pt-14"
           style={{ background: `linear-gradient(180deg, ${bg} 0%, rgba(18,18,18,0.9) 100%)` }}

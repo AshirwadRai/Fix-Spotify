@@ -197,7 +197,7 @@ export function SearchTab({ onMenu, onOpenArtist, onOpenAlbum, onImportSpotify }
         )}
       </div>
 
-      <div className="scroll-y flex-1">
+      <div className="scroll-y pb-bars flex-1">
         {/* Recent searches — shown until the first search of the session */}
         {!searched && (
           <div className="px-4 pt-2">

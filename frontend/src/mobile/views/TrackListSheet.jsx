@@ -188,7 +188,7 @@ export function TrackListSheet({ view, onClose, onMenu }) {
       </div>
 
       {/* Everything below scrolls together; the hero collapses as it does. */}
-      <div className="scroll-y flex-1 -mt-14" onScroll={onScroll}>
+      <div className="scroll-y pb-bars flex-1 -mt-14" onScroll={onScroll}>
         <div
           className="pt-14"
           style={{

@@ -229,6 +229,18 @@
   background: #fff;
 }
 
+/* Clearance for the mini-player + bottom nav, which FLOAT over the scrolling
+   content (that's what gives the nav a real backdrop to frost). Every scroll
+   region inside <main> needs it, or its last row sits under the glass.
+
+   Reserved unconditionally, including when the mini-player is hidden: making it
+   conditional would reflow every list the moment playback starts, and a little
+   dead space at the bottom of a list is a far smaller sin than a row you cannot
+   reach. env() covers the gesture bar on top of that. */
+.pb-bars {
+  padding-bottom: calc(128px + env(safe-area-inset-bottom, 0px));
+}
+
 /* The equalizer's vertical bands.
    `writing-mode: vertical-lr` (set inline) is what stands the range on end —
    the browser's own rotation, so the thumb still tracks the finger correctly

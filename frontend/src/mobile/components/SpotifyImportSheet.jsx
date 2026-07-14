@@ -131,7 +131,7 @@ export function SpotifyImportSheet({ url, onClose, onMenu }) {
             </button>
           </div>
 
-          <div className="scroll-y flex-1">
+          <div className="scroll-y pb-bars flex-1">
             {tracks.map((t, i) => (
               <TrackItem
                 key={`${t.title}-${i}`}
