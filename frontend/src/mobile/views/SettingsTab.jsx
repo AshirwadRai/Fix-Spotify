@@ -1,5 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Check, RotateCcw, HardDrive, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
+// Namespace import: each preset names its own glyph (see utils/eq.js), so the
+// component resolves it by name rather than the file re-listing all twelve.
+import * as LucideIcons from 'lucide-react';
 import {
   useAppSettings, writeAppSetting, writeAppSettings, DEFAULT_SETTINGS,
 } from '../../utils/settings';
@@ -430,6 +433,40 @@ function StorageSection() {
  * still applies here, downstream of us; we just can't offer a switch for it, and
  * a fake one would be worse than none.
  */
+/**
+ * The preset's curve, drawn as eight little bars.
+ *
+ * Each bar grows UP from the middle for a boost and DOWN for a cut, so the shape
+ * you see on the card is literally the shape the sliders below will take. A row of
+ * icons alone would tell you nothing about what "Jazz" actually does to the sound.
+ */
+function CurvePreview({ gains, active }) {
+  const H = 14;                              // px, the full height a ±12dB swing spans
+  return (
+    <span className="flex h-3.5 items-center gap-[1.5px]" aria-hidden="true">
+      {gains.map((db, i) => {
+        const ratio = Math.min(1, Math.abs(db) / EQ_MAX_DB);
+        // Always at least a sliver, so a flat band reads as "no change" rather
+        // than as a missing bar.
+        const h = Math.max(2, ratio * (H / 2));
+        return (
+          <span
+            key={i}
+            className={`w-[2px] rounded-full ${
+              active ? 'bg-spotify-essential-bright-accent' : 'bg-white/40'
+            }`}
+            style={{
+              height: `${h}px`,
+              // Boost rises above the centre line, cut drops below it.
+              transform: `translateY(${db >= 0 ? -h / 2 : h / 2}px)`,
+            }}
+          />
+        );
+      })}
+    </span>
+  );
+}
+
 function EqualizerPanel({ settings }) {
   const enabled = !!settings.eqEnabled;
   const gains = resolveGains(settings);
@@ -470,22 +507,51 @@ function EqualizerPanel({ settings }) {
       <section className={`px-4 py-5 ${enabled ? '' : 'pointer-events-none opacity-40'}`}>
         <h2 className="text-[17px] font-extrabold tracking-tight">Preset</h2>
 
-        <div className="rail mt-3">
-          {EQ_PRESETS.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              disabled={!enabled}
-              onClick={() => pickPreset(p.id)}
-              className={`shrink-0 rounded-full px-3.5 py-1.5 text-[12.5px] whitespace-nowrap transition-colors duration-fast ${
-                settings.eqPreset === p.id
-                  ? 'bg-white font-semibold text-black'
-                  : 'bg-white/10 text-white'
-              }`}
-            >
-              {p.label}
-            </button>
-          ))}
+        {/* A GRID, not a scrolling strip of chips. A rail hides half the presets
+            off the edge and gives you no way to compare them; laid out flat you
+            can see every option at once — and each card draws its OWN curve, so
+            you can read what a preset does before committing to it. */}
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          {EQ_PRESETS.map((p) => {
+            const selected = settings.eqPreset === p.id;
+            // Custom has no fixed curve — it previews whatever is dialled in now.
+            const curve = p.gains || gains;
+            const Icon = LucideIcons[p.icon] || LucideIcons.SlidersHorizontal;
+            return (
+              <button
+                key={p.id}
+                type="button"
+                disabled={!enabled}
+                aria-pressed={selected}
+                onClick={() => pickPreset(p.id)}
+                className={`relative flex flex-col items-center gap-1.5 rounded-xl border px-2 py-2.5 transition-colors duration-fast ${
+                  selected
+                    ? 'border-spotify-essential-bright-accent bg-spotify-essential-bright-accent/10'
+                    : 'border-white/[0.08] bg-white/[0.035]'
+                }`}
+              >
+                {selected && (
+                  <Check
+                    size={13}
+                    strokeWidth={3}
+                    className="absolute right-1.5 top-1.5 text-spotify-essential-bright-accent"
+                  />
+                )}
+                <Icon
+                  size={17}
+                  className={selected ? 'text-spotify-essential-bright-accent' : 'text-spotify-text-subdued'}
+                />
+                <CurvePreview gains={curve} active={selected} />
+                <span
+                  className={`text-[10.5px] leading-none ${
+                    selected ? 'font-semibold text-white' : 'text-spotify-text-subdued'
+                  }`}
+                >
+                  {p.label}
+                </span>
+              </button>
+            );
+          })}
         </div>
 
         {/* Vertical sliders, one per band. `writing-mode` is the native way to

@@ -27,9 +27,14 @@ export function BottomNav({ active, onChange }) {
     // letting the blur wash it to grey; that's the whole difference between
     // frosted glass and fog.
     //
-    // translateZ(0) forces its own compositing layer. Without it the WebView
-    // re-rasterises the blur against the scrolling content every frame and the
-    // whole bar shimmers.
+    // THE SHAKE. A backdrop-filter element with no compositing layer of its own
+    // is re-rasterised against the content moving behind it on every scroll
+    // frame, and the WebView lands those repaints a frame late — so the bar
+    // appeared to wobble as you scrolled Home.
+    //
+    // translateZ(0) + will-change promotes it to its own layer, and
+    // `contain: paint` tells the compositor nothing inside it can affect
+    // anything outside, so it stops being re-laid-out with the scroller.
     <nav
       className="shrink-0 border-t border-white/[0.12] pb-safe"
       style={{
@@ -38,6 +43,7 @@ export function BottomNav({ active, onChange }) {
         WebkitBackdropFilter: 'blur(32px) saturate(200%)',
         transform: 'translateZ(0)',
         willChange: 'transform',
+        contain: 'paint',
         // A soft lift so the bar sits ON the content rather than being cut out of it.
         boxShadow: '0 -1px 24px rgba(0, 0, 0, 0.45)',
       }}

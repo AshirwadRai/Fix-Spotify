@@ -21,19 +21,24 @@ export const FLAT = [0, 0, 0, 0, 0, 0, 0, 0];
  * `custom` has no curve of its own — it holds whatever the user last dragged,
  * which is why it lives in settings (eqGains) rather than here.
  */
+/**
+ * `icon` names a lucide-react export. It lives here rather than in the component
+ * so the preset list stays the single place a preset is defined — id, label,
+ * curve and glyph together.
+ */
 export const EQ_PRESETS = [
-  { id: 'flat', label: 'Flat', gains: FLAT },
-  { id: 'rock', label: 'Rock', gains: [5, 3, -1, -2, 1, 3, 4, 4] },
-  { id: 'metal', label: 'Metal', gains: [6, 4, -2, -3, 2, 5, 5, 3] },
-  { id: 'pop', label: 'Pop', gains: [-1, 2, 4, 4, 2, -1, -1, -2] },
-  { id: 'hiphop', label: 'Hip-Hop', gains: [7, 5, 1, -1, -1, 1, 2, 3] },
-  { id: 'electronic', label: 'Electronic', gains: [6, 4, 0, -2, 1, 2, 5, 6] },
-  { id: 'classical', label: 'Classical', gains: [4, 3, -1, -2, -1, 2, 3, 4] },
-  { id: 'jazz', label: 'Jazz', gains: [3, 2, 1, 2, -1, -1, 2, 3] },
-  { id: 'vocal', label: 'Vocal', gains: [-3, -2, 2, 5, 5, 3, 0, -2] },
-  { id: 'bass', label: 'Bass Boost', gains: [9, 7, 4, 1, 0, 0, 0, 0] },
-  { id: 'treble', label: 'Treble Boost', gains: [0, 0, 0, 0, 2, 5, 7, 8] },
-  { id: 'custom', label: 'Custom', gains: null },
+  { id: 'flat', label: 'Flat', icon: 'Minus', gains: FLAT },
+  { id: 'rock', label: 'Rock', icon: 'Guitar', gains: [5, 3, -1, -2, 1, 3, 4, 4] },
+  { id: 'metal', label: 'Metal', icon: 'Flame', gains: [6, 4, -2, -3, 2, 5, 5, 3] },
+  { id: 'pop', label: 'Pop', icon: 'Sparkles', gains: [-1, 2, 4, 4, 2, -1, -1, -2] },
+  { id: 'hiphop', label: 'Hip-Hop', icon: 'Drum', gains: [7, 5, 1, -1, -1, 1, 2, 3] },
+  { id: 'electronic', label: 'Electronic', icon: 'Radio', gains: [6, 4, 0, -2, 1, 2, 5, 6] },
+  { id: 'classical', label: 'Classical', icon: 'Piano', gains: [4, 3, -1, -2, -1, 2, 3, 4] },
+  { id: 'jazz', label: 'Jazz', icon: 'Music4', gains: [3, 2, 1, 2, -1, -1, 2, 3] },
+  { id: 'vocal', label: 'Vocal', icon: 'Mic2', gains: [-3, -2, 2, 5, 5, 3, 0, -2] },
+  { id: 'bass', label: 'Bass Boost', icon: 'Speaker', gains: [9, 7, 4, 1, 0, 0, 0, 0] },
+  { id: 'treble', label: 'Treble Boost', icon: 'AudioLines', gains: [0, 0, 0, 0, 2, 5, 7, 8] },
+  { id: 'custom', label: 'Custom', icon: 'SlidersHorizontal', gains: null },
 ];
 
 export function presetGains(id) {

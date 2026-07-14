@@ -82,7 +82,7 @@ export function MiniPlayer({ onExpand }) {
   // The axis is LOCKED on the first few pixels of movement: without that, a
   // vertical scroll that drifts sideways would register as a song skip. Once a
   // gesture is judged vertical we ignore it entirely and let the page scroll.
-  const SWIPE_MIN = 60;    // px of travel that commits to a track change
+  const SWIPE_MIN = 48;    // px of travel that commits to a track change
 
   const onTouchStart = (e) => {
     const t = e.touches[0];
@@ -121,9 +121,16 @@ export function MiniPlayer({ onExpand }) {
       className="shrink-0 mx-2 mb-1 rounded-lg overflow-hidden shadow-lg transition-colors duration-slow ease-soft"
       style={{
         backgroundColor: tint || undefined,
-        // `pan-y` lets the page still scroll vertically through the bar while we
-        // own the X axis. The bar never translates — only the song changes.
-        touchAction: 'pan-y',
+        // `none`, not `pan-y`.
+        //
+        // pan-y was right when the bar sat in the scroll flow — it let a vertical
+        // drag scroll the page THROUGH the bar. Now that the bar is an opaque
+        // strip floating OVER the content, there is nothing behind it to scroll,
+        // and pan-y actively broke the swipe: the browser kept the option of
+        // taking the gesture for a vertical pan, and cancelled our touch stream
+        // (touchcancel) partway through a drag that had any vertical drift at all.
+        // Owning the gesture outright is what makes the swipe fire reliably.
+        touchAction: 'none',
       }}
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}

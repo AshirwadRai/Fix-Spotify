@@ -364,21 +364,21 @@ function Shell() {
             the z-20 sheets) also keeps them visible on every screen except the
             full player, exactly as before.
 
-            FIXED, not absolute. An absolutely-positioned backdrop-filter element
-            is re-composited against the content moving behind it on every scroll
-            frame, and the WebView lands those repaints a frame late — which is
-            the shake that showed up on Home the moment the bar became glass.
-            Fixing it to the viewport takes it out of the scroll's compositing
-            path entirely, so it cannot be dragged around by the layer behind it.
+            ABSOLUTE, anchored to <main> — NOT fixed to the viewport.
 
-            pointer-events: the wrapper spans the full width including the
-            mini-player's side gutters, so it must not swallow taps that land in
-            them — the bars themselves take pointer events back. */}
-        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30">
-          <div className="pointer-events-auto">
-            <MiniPlayer onExpand={openNowPlaying} />
-            <BottomNav active={tab} onChange={changeTab} />
-          </div>
+            index.mobile.html sets viewport-fit=cover, which deliberately extends
+            the layout viewport BEHIND the system gesture bar so the UI can run
+            edge to edge. `position: fixed` resolves against that viewport, so
+            `bottom: 0` put the nav underneath the gesture bar and off the bottom
+            of the screen. Anchoring to <main> instead keeps the bars inside the
+            app's real flex box, where they physically cannot escape.
+
+            (The shake this briefly tried to fix was never a positioning problem —
+            it was the backdrop-filter re-compositing against the scrolling
+            content. That's solved in BottomNav by promoting it to its own layer.) */}
+        <div className="absolute inset-x-0 bottom-0 z-30">
+          <MiniPlayer onExpand={openNowPlaying} />
+          <BottomNav active={tab} onChange={changeTab} />
         </div>
       </main>
 

@@ -6,10 +6,25 @@
 // silently ignore the EQ the user just dialled in.
 
 import assert from 'node:assert/strict';
+import * as Lucide from 'lucide-react';
 import {
-  EQ_BANDS, EQ_MIN_DB, EQ_MAX_DB, FLAT,
+  EQ_BANDS, EQ_MIN_DB, EQ_MAX_DB, FLAT, EQ_PRESETS,
   resolveGains, presetGains, normalizeGains, isFlat, bandLabel,
 } from './eq.js';
+
+// Every preset names a lucide glyph for its card. A typo here doesn't crash — the
+// grid quietly falls back to a generic icon — so nothing would ever tell us.
+for (const p of EQ_PRESETS) {
+  assert.ok(p.icon, `${p.id} has no icon`);
+  assert.ok(p.icon in Lucide, `${p.id}: "${p.icon}" is not a lucide-react export`);
+}
+
+// 'custom' is the ONLY preset allowed to have no curve of its own — it renders
+// and resolves from the user's stored gains instead.
+for (const p of EQ_PRESETS) {
+  if (p.id === 'custom') assert.equal(p.gains, null, 'custom must not carry a fixed curve');
+  else assert.ok(Array.isArray(p.gains), `${p.id} must define a curve`);
+}
 
 // Every preset must cover every band, in range. A short curve would leave the
 // tail bands at whatever the last preset set them to.

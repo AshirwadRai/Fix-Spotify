@@ -1,10 +1,10 @@
-import { useState, useMemo, useCallback } from 'react';
-import { Heart, Plus, Music2, ArrowDownToLine, Disc3, Pin, PinOff, MoreVertical } from 'lucide-react';
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { Heart, Plus, Music2, ArrowDownToLine, Disc3, Pin, PinOff, Pencil, Trash2 } from 'lucide-react';
 import { usePins, togglePin, isPinned, rowId, sortPinned, MAX_PINS } from '../../utils/pins';
 import { useLikedSongs } from '../../utils/likes';
 import { useSavedCollections } from '../../utils/collections';
 import { useOfflineTracks } from '../../utils/downloads';
-import { usePlaylists, createPlaylist } from '../usePlaylists';
+import { usePlaylists, createPlaylist, renamePlaylist, deletePlaylist } from '../usePlaylists';
 import { PlaylistCover } from '../../components/PlaylistCover';
 import { cleanText, sameTrack } from '../../utils/tracks';
 import { usePlayer } from '../../store/PlayerContext';
@@ -44,13 +44,22 @@ export function LibraryTab({ onOpenList, onOpenCollection }) {
   // playlists), which keeps the filter chips meaningful — a pinned album jumping
   // into the Playlists list would just be confusing.
   const pins = usePins();
-  // The row whose ⋮ menu is open: { id, title }.
+  // The row whose long-press menu is open: { id, title, playlistId? }.
   const [menu, setMenu] = useState(null);
+  const [renaming, setRenaming] = useState(null);   // { playlistId, title }
 
   const pin = useCallback((id) => {
     const res = togglePin(id);
     if (res === 'full') toast(`You can pin up to ${MAX_PINS} — unpin one first`);
     else if (res === 'pinned') toast('Pinned to the top');
+    setMenu(null);
+  }, []);
+
+  const removePlaylist = useCallback((playlistId, title) => {
+    // Deleting a playlist is not undoable — always ask first.
+    if (!window.confirm(`Delete “${title}”? This can't be undone.`)) return;
+    deletePlaylist(playlistId);
+    toast('Playlist deleted');
     setMenu(null);
   }, []);
 
@@ -193,7 +202,7 @@ export function LibraryTab({ onOpenList, onOpenCollection }) {
                 active={!!currentTrack && (p.tracks || []).some((t) => sameTrack(t, currentTrack))}
                 subtitle={`Playlist · ${(p.tracks || []).length} songs`}
                 pinned={pins.includes(id)}
-                onMenu={() => setMenu({ id, title: p.name })}
+                onMenu={() => setMenu({ id, title: p.name, playlistId: p.id })}
                 onClick={() =>
                   onOpenList({
                     kind: 'playlist',
@@ -254,8 +263,26 @@ export function LibraryTab({ onOpenList, onOpenCollection }) {
         <RowMenu
           title={menu.title}
           pinned={isPinned(menu.id)}
+          isPlaylist={!!menu.playlistId}
           onPin={() => pin(menu.id)}
+          onEdit={() => {
+            setRenaming({ playlistId: menu.playlistId, title: menu.title });
+            setMenu(null);
+          }}
+          onDelete={() => removePlaylist(menu.playlistId, menu.title)}
           onClose={() => setMenu(null)}
+        />
+      )}
+
+      {renaming && (
+        <RenameDialog
+          initial={renaming.title}
+          onSave={(next) => {
+            renamePlaylist(renaming.playlistId, next);
+            setRenaming(null);
+            toast('Playlist renamed');
+          }}
+          onClose={() => setRenaming(null)}
         />
       )}
     </div>
@@ -263,28 +290,88 @@ export function LibraryTab({ onOpenList, onOpenCollection }) {
 }
 
 /**
- * The ⋮ sheet for a library row. Pin/unpin only, for now — matching the track
- * action sheet's shape so the two feel like the same control.
+ * The long-press sheet for a library row.
+ *
+ * Edit and Delete only appear for playlists — an album you saved isn't yours to
+ * rename, and "delete" would be a lie for something you can re-save in a tap.
  */
-function RowMenu({ title, pinned, onPin, onClose }) {
+function RowMenu({ title, pinned, isPlaylist, onPin, onEdit, onDelete, onClose }) {
+  const items = [
+    {
+      Icon: pinned ? PinOff : Pin,
+      label: pinned ? 'Unpin' : `Pin to top (max ${MAX_PINS})`,
+      onClick: onPin,
+    },
+    ...(isPlaylist ? [
+      { Icon: Pencil, label: 'Rename playlist', onClick: onEdit },
+      { Icon: Trash2, label: 'Delete playlist', onClick: onDelete, danger: true },
+    ] : []),
+  ];
+
   return (
     <>
       <div className="fixed inset-0 z-[60] bg-black/60" onClick={onClose} aria-hidden="true" />
       <div className="fixed inset-x-0 bottom-0 z-[61] rounded-t-2xl bg-spotify-elevated-base pb-safe">
         <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-white/25" />
-        <p className="truncate px-5 pt-3 pb-1 text-[13px] text-spotify-text-subdued">{title}</p>
-        <button
-          type="button"
-          onClick={onPin}
-          className="tap flex w-full items-center gap-4 px-5 py-4 text-left active:bg-white/5"
-        >
-          {pinned
-            ? <PinOff size={20} className="shrink-0 text-spotify-text-subdued" />
-            : <Pin size={20} className="shrink-0 text-spotify-text-subdued" />}
-          <span className="text-[15px]">{pinned ? 'Unpin' : `Pin to top (max ${MAX_PINS})`}</span>
-        </button>
+        <p className="truncate px-5 pt-3 pb-2 text-[13px] font-semibold">{title}</p>
+        {items.map(({ Icon, label, onClick, danger }) => (
+          <button
+            key={label}
+            type="button"
+            onClick={onClick}
+            className={`tap flex w-full items-center gap-4 px-5 py-3.5 text-left active:bg-white/5 ${
+              danger ? 'text-spotify-essential-negative' : ''
+            }`}
+          >
+            <Icon size={19} className={`shrink-0 ${danger ? '' : 'text-spotify-text-subdued'}`} />
+            <span className="text-[15px]">{label}</span>
+          </button>
+        ))}
       </div>
     </>
+  );
+}
+
+/** Centred rename dialog — same shape as "Name your playlist" on create. */
+function RenameDialog({ initial, onSave, onClose }) {
+  const [value, setValue] = useState(initial);
+  return (
+    <div
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 px-8 animate-fade-in"
+      onClick={onClose}
+      role="presentation"
+    >
+      <form
+        onSubmit={(e) => { e.preventDefault(); onSave(value); }}
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-sm rounded-2xl bg-spotify-elevated-base p-5"
+      >
+        <p className="text-center text-[17px] font-bold">Rename playlist</p>
+        <input
+          autoFocus
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          enterKeyHint="done"
+          className="mt-4 w-full border-b-2 border-white/30 bg-transparent pb-2 text-center text-[18px] font-semibold text-white outline-none focus:border-spotify-essential-bright-accent"
+        />
+        <div className="mt-5 flex justify-center gap-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="tap px-5 py-2.5 rounded-full text-[14px] font-semibold text-white/70"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={!value.trim()}
+            className="tap px-6 py-2.5 rounded-full bg-spotify-essential-bright-accent text-black text-[14px] font-bold disabled:opacity-40"
+          >
+            Save
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }
 
@@ -304,12 +391,58 @@ function Row({
   image, cover, Icon, gradient, filled, rounded, title, subtitle,
   active = false, onClick, pinned = null, onMenu,
 }) {
+  // HOLD to open the row's menu — the ⋮ button is gone. A dedicated button on
+  // every single row is a permanent 40px of chrome for something you touch once
+  // in a while, and long-press is what a phone user already reaches for.
+  //
+  // The timer is cancelled by movement (>10px = you're scrolling, not holding)
+  // and by lifting early, so a hold can never be mistaken for a tap or a scroll.
+  const holdRef = useRef(null);
+  const firedRef = useRef(false);
+  const startRef = useRef({ x: 0, y: 0 });
+
+  const cancelHold = () => {
+    clearTimeout(holdRef.current);
+    holdRef.current = null;
+  };
+
+  const onPressStart = (e) => {
+    if (!onMenu) return;
+    const t = e.touches?.[0];
+    startRef.current = { x: t?.clientX ?? 0, y: t?.clientY ?? 0 };
+    firedRef.current = false;
+    holdRef.current = setTimeout(() => {
+      firedRef.current = true;
+      // A short buzz is the only thing that tells you the hold registered before
+      // the sheet animates in. Not every WebView has it, hence the guard.
+      navigator.vibrate?.(12);
+      onMenu();
+    }, 450);
+  };
+
+  const onPressMove = (e) => {
+    if (!holdRef.current) return;
+    const t = e.touches?.[0];
+    if (!t) return;
+    const dx = Math.abs(t.clientX - startRef.current.x);
+    const dy = Math.abs(t.clientY - startRef.current.y);
+    if (dx > 10 || dy > 10) cancelHold();   // that's a scroll, not a hold
+  };
+
+  useEffect(() => cancelHold, []);
+
   return (
-    <div className="flex items-center pr-1 transition-colors duration-fast active:bg-white/5">
+    <div className="transition-colors duration-fast active:bg-white/5">
       <button
         type="button"
-        onClick={onClick}
-        className="tap flex flex-1 min-w-0 items-center gap-3 py-2.5 pl-4 text-left"
+        // A hold already opened the menu — don't ALSO open the playlist on release.
+        onClick={() => { if (!firedRef.current) onClick?.(); }}
+        onTouchStart={onPressStart}
+        onTouchMove={onPressMove}
+        onTouchEnd={cancelHold}
+        onTouchCancel={cancelHold}
+        onContextMenu={(e) => e.preventDefault()}
+        className="tap flex w-full min-w-0 items-center gap-3 py-2.5 pl-4 pr-3 text-left"
       >
         <div
           className={`w-14 h-14 overflow-hidden shrink-0 flex items-center justify-center ${
@@ -330,7 +463,7 @@ function Row({
           <p className={`text-[14px] truncate ${active ? 'text-spotify-essential-bright-accent' : ''}`}>
             {title}
           </p>
-          <p className="flex items-center gap-1 text-[11.5px] text-spotify-text-subdued truncate">
+          <p className="flex items-center gap-1 text-[11.5px] text-spotify-text-subdued">
             {pinned && (
               <Pin size={10} className="shrink-0 text-spotify-essential-bright-accent" fill="currentColor" />
             )}
@@ -338,17 +471,6 @@ function Row({
           </p>
         </div>
       </button>
-
-      {onMenu && (
-        <button
-          type="button"
-          aria-label={`More options for ${title}`}
-          onClick={onMenu}
-          className="tap shrink-0 p-2.5 text-spotify-essential-subdued"
-        >
-          <MoreVertical size={18} />
-        </button>
-      )}
     </div>
   );
 }
