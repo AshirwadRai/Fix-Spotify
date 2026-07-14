@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Volume1, Repeat, Repeat1, Shuffle, Heart, ListMusic, MonitorSpeaker, Loader2, WifiOff, AlertCircle } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Volume1, Repeat, Shuffle, Heart, ListMusic, MonitorSpeaker, Loader2, WifiOff, AlertCircle } from 'lucide-react';
 import { usePlayer } from '../store/PlayerContext';
 import { FastAverageColor } from 'fast-average-color';
 import { cleanText, getBestArtworkUrl, splitArtists } from '../utils/tracks';
@@ -10,7 +10,7 @@ export function PlayerBar({ onColorChange, showNowPlaying, onToggleNowPlaying, o
     currentTrack, isPlaying, isLoading, playbackError,
     togglePlay, progress, duration, seek, 
     volume, changeVolume, playNext, playPrevious,
-    shuffle, toggleShuffle, repeat, cycleRepeat, streamQuality,
+    shuffle, toggleShuffle, repeat, toggleRepeat, streamQuality,
   } = usePlayer();
   
   const [isMuted, setIsMuted] = useState(false);
@@ -91,8 +91,6 @@ export function PlayerBar({ onColorChange, showNowPlaying, onToggleNowPlaying, o
     if (v < 0.5) return <Volume1 className="w-4 h-4" />;
     return <Volume2 className="w-4 h-4" />;
   };
-
-  const RepeatIcon = repeat === 'one' ? Repeat1 : Repeat;
 
   const progressPercent = duration > 0 ? (progress / duration) * 100 : 0;
   const volumePercent = (isMuted ? 0 : volume) * 100;
@@ -203,12 +201,14 @@ export function PlayerBar({ onColorChange, showNowPlaying, onToggleNowPlaying, o
           <button onClick={playNext} className="text-spotify-text-subdued hover:text-white transition-colors">
             <SkipForward className="w-4 h-4" fill="currentColor" />
           </button>
-          <button 
-            onClick={cycleRepeat}
-            className={`transition-colors relative ${repeat !== 'off' ? 'text-spotify-essential-bright-accent' : 'text-spotify-text-subdued hover:text-white'}`}
+          <button
+            onClick={toggleRepeat}
+            aria-pressed={repeat === 'one'}
+            title={repeat === 'one' ? 'Repeat on — this song replays' : 'Repeat this song'}
+            className={`transition-colors relative ${repeat === 'one' ? 'text-spotify-essential-bright-accent' : 'text-spotify-text-subdued hover:text-white'}`}
           >
-            <RepeatIcon className="w-4 h-4" />
-            {repeat !== 'off' && <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-spotify-essential-bright-accent"></div>}
+            <Repeat className="w-4 h-4" />
+            {repeat === 'one' && <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-spotify-essential-bright-accent"></div>}
           </button>
         </div>
         

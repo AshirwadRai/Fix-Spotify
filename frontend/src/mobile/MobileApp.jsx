@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { WifiOff, Wifi } from 'lucide-react';
+import { WifiOff, Wifi, ArrowUpCircle, X } from 'lucide-react';
+import { api } from '../api';
 import { PlayerProvider, usePlayer } from '../store/PlayerContext';
 import { DownloadsProvider } from '../store/DownloadsContext';
 import { Toaster } from '../components/Toaster';
@@ -49,7 +50,7 @@ function Shell() {
 
   const {
     currentTrack, isPlaying, progress, duration,
-    togglePlay, playNext, playPrevious, seek,
+    pause, resume, playNext, playPrevious, seek,
   } = usePlayer();
   const playFrom = usePlayFrom();
 
@@ -80,18 +81,22 @@ function Shell() {
     return () => window.removeEventListener('pointerdown', markTouched);
   }, []);
 
+  // play/pause are EXPLICIT, not togglePlay. Android sends a real "pause" when the
+  // headset is unplugged or the buds disconnect; routing that through a toggle
+  // meant a pause arriving while already paused would START the music — out loud,
+  // on the phone speaker. The commands now say what they mean.
   useEffect(
     () => registerTransport({
       play: () => {
         if (!window.__userTouched && Date.now() - bootAtRef < 4000) return;
-        togglePlay();
+        resume();
       },
-      pause: togglePlay,
+      pause,
       next: playNext,
       previous: playPrevious,
       seek,
     }),
-    [togglePlay, playNext, playPrevious, seek, bootAtRef]
+    [pause, resume, playNext, playPrevious, seek, bootAtRef]
   );
 
   // ── Connectivity ────────────────────────────────────────────────────────
@@ -258,6 +263,38 @@ function Shell() {
         </div>
       )}
 
+      {/* New version available.
+          A top bar, not a floating card over the player: it reads as part of the
+          app chrome rather than an ad, it never covers a control, and it stays put
+          instead of animating in over whatever the user was doing. Plain language,
+          no emoji — the version number and a clear action are the whole pitch. */}
+      {update && !updateDismissed && !settingsOpen && (
+        <div className="shrink-0 pt-safe bg-spotify-elevated-base border-b border-white/10">
+          <div className="flex items-center gap-3 px-4 py-2">
+            <ArrowUpCircle size={17} className="shrink-0 text-spotify-essential-bright-accent" />
+            <p className="min-w-0 flex-1 truncate text-[13px]">
+              <span className="font-semibold">Version {update.version} is available</span>
+              <span className="text-spotify-text-subdued"> · your library is kept</span>
+            </p>
+            <button
+              type="button"
+              onClick={() => { setUpdateDismissed(true); openSettings(); }}
+              className="tap shrink-0 rounded-full bg-spotify-essential-bright-accent px-3.5 py-1 text-[12px] font-semibold text-black"
+            >
+              Update
+            </button>
+            <button
+              type="button"
+              aria-label="Dismiss"
+              onClick={() => setUpdateDismissed(true)}
+              className="tap shrink-0 p-1 text-spotify-text-subdued"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* main is the ONLY scroll region and the positioning context for the
           detail overlays. Because CollectionSheet / TrackListSheet / Settings
           render INSIDE main (absolute inset-0), the mini-player and nav below
@@ -313,32 +350,6 @@ function Shell() {
           </div>
         )}
       </main>
-
-      {/* New-version popup — dismissible; the Settings gear keeps a green dot. */}
-      {update && !updateDismissed && !settingsOpen && (
-        <div className="fixed inset-x-4 bottom-36 z-40 flex items-center gap-3 rounded-2xl bg-spotify-elevated-base px-4 py-3 shadow-2xl animate-slide-up">
-          <span className="text-xl">✨</span>
-          <p className="min-w-0 flex-1 text-[13px] leading-snug">
-            <span className="font-bold">v{update.version} just dropped</span>
-            <span className="text-spotify-text-subdued"> — install to catch the new stuff 🔥</span>
-          </p>
-          <button
-            type="button"
-            onClick={() => { setUpdateDismissed(true); openSettings(); }}
-            className="tap shrink-0 rounded-full bg-spotify-essential-bright-accent px-3.5 py-1.5 text-[12px] font-bold text-black"
-          >
-            Get it
-          </button>
-          <button
-            type="button"
-            aria-label="Dismiss"
-            onClick={() => setUpdateDismissed(true)}
-            className="tap shrink-0 p-1 text-spotify-text-subdued"
-          >
-            ✕
-          </button>
-        </div>
-      )}
 
       <MiniPlayer onExpand={openNowPlaying} />
       <BottomNav active={tab} onChange={changeTab} />

@@ -1,4 +1,4 @@
-import { toast } from './toast';
+import { toast } from './toast.js';
 import { User, Disc3 } from 'lucide-react';
 
 const PLAYABLE_SOURCES = new Set(['jiosaavn', 'soundcloud', 'youtube', 'youtube_music']);

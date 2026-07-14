@@ -9,6 +9,8 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
 import android.media.AudioManager
 import androidx.core.content.ContextCompat
 import android.content.pm.ServiceInfo
@@ -84,19 +86,33 @@ class BackendService : Service() {
 
         @Volatile
         var instance: BackendService? = null
+
+        /**
+         * How the service asks the WebView to change playback. Lock-screen and
+         * notification buttons land here, and MainActivity turns them into calls
+         * on the <audio> element.
+         *
+         * This lives on the COMPANION, not on the instance, and that is the whole
+         * fix for "the lock screen controls work sometimes".
+         *
+         * MainActivity registered it as `BackendService.instance?.transportListener = …`.
+         * But the activity starts the service and then immediately registers —
+         * and startForegroundService() is asynchronous, so `instance` is usually
+         * still null at that moment. The `?.` swallowed it, the listener was never
+         * attached, and every media button (and the headset-unplug pause, which
+         * comes through the same path) silently did nothing. Whether it worked
+         * came down to a race: it only stuck if the service happened to win.
+         *
+         * A companion field has no instance to be null, so registration cannot
+         * miss, and it survives the service being restarted under memory pressure.
+         */
+        @Volatile
+        var transportListener: TransportListener? = null
     }
 
-    /**
-     * How the service asks the WebView to change playback. The lock-screen and
-     * notification buttons land here, and MainActivity turns them into calls on
-     * the <audio> element.
-     */
     interface TransportListener {
         fun onCommand(action: String)
     }
-
-    @Volatile
-    var transportListener: TransportListener? = null
 
     private lateinit var mediaSession: MediaSessionCompat
     private val started = AtomicBoolean(false)
@@ -118,6 +134,66 @@ class BackendService : Service() {
                 transportListener?.onCommand("pause")
             }
         }
+    }
+
+    /**
+     * Audio focus — the other half of behaving like a real music app.
+     *
+     * BECOMING_NOISY only covers the headset going away. Focus covers everything
+     * else that should stop us: an incoming call, a navigation prompt, another
+     * player starting. Without requesting it we were simply a process making
+     * noise, and two apps would play over each other.
+     *
+     * LOSS is permanent (something else took over) -> pause. TRANSIENT is a
+     * momentary interruption -> pause and resume after, but only if the user
+     * hadn't already paused it themselves.
+     */
+    private var audioFocusRequest: AudioFocusRequest? = null
+    private var resumeOnFocusGain = false
+
+    private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
+        when (change) {
+            AudioManager.AUDIOFOCUS_LOSS -> {
+                resumeOnFocusGain = false
+                transportListener?.onCommand("pause")
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                // Duck-capable losses are treated as a pause too: the WebView's
+                // <audio> gives us no volume ramp worth the complexity here.
+                // ponytail: pause instead of duck; add ducking if a notification
+                // chime silencing the song for a second becomes annoying.
+                resumeOnFocusGain = isPlaying
+                transportListener?.onCommand("pause")
+            }
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                if (resumeOnFocusGain) {
+                    resumeOnFocusGain = false
+                    transportListener?.onCommand("play")
+                }
+            }
+        }
+    }
+
+    // minSdk is 26 (O), so AudioFocusRequest is always available — no legacy branch.
+    private fun audioManager() = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+
+    private fun requestAudioFocus() {
+        val req = audioFocusRequest ?: AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .build()
+            )
+            .setOnAudioFocusChangeListener(focusListener)
+            .build()
+            .also { audioFocusRequest = it }
+        audioManager().requestAudioFocus(req)
+    }
+
+    private fun abandonAudioFocus() {
+        audioFocusRequest?.let { audioManager().abandonAudioFocusRequest(it) }
     }
 
     override fun onCreate() {
@@ -179,6 +255,7 @@ class BackendService : Service() {
             Log.w(TAG, "stop_server failed", e)
         }
         mediaSession.release()
+        try { abandonAudioFocus() } catch (e: Exception) { /* never requested */ }
         try { unregisterReceiver(becomingNoisy) } catch (e: Exception) { /* never registered */ }
         instance = null
         serverReady.set(false)
@@ -329,9 +406,15 @@ class BackendService : Service() {
         positionMs: Long,
         artworkUrl: String?
     ) {
+        val wasPlaying = isPlaying
         trackTitle = title.ifBlank { "Fix_Spotify" }
         trackArtist = artist
         isPlaying = playing
+
+        // Hold focus exactly while sound is coming out of us, so other apps know
+        // to duck/stop — and so we hear about it when THEY need the audio.
+        if (playing && !wasPlaying) requestAudioFocus()
+        else if (!playing && wasPlaying) abandonAudioFocus()
 
         mediaSession.setMetadata(
             MediaMetadataCompat.Builder()

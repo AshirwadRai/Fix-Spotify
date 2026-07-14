@@ -3,6 +3,7 @@ import { getPlayableSource, getPlayableSources, normalizeTrack, writeStoredTrack
 import { readAppSettings, qualityToBitrate } from '../utils/settings';
 import { apiUrl } from '../utils/config';
 import { getOfflineEntry, removeOfflineEntry } from '../utils/downloads';
+import { insertQueued } from '../utils/queue';
 import { api } from '../api';
 
 const PlayerContext = createContext();
@@ -124,8 +125,14 @@ export function PlayerProvider({ children }) {
   const [shuffle, setShuffle] = useState(() => {
     try { return !!JSON.parse(localStorage.getItem('playbackModes') || '{}').shuffle; } catch { return false; }
   });
-  const [repeat, setRepeat] = useState(() => {  // 'off' | 'all' | 'one'
-    try { return JSON.parse(localStorage.getItem('playbackModes') || '{}').repeat || 'off'; } catch { return 'off'; }
+  // 'off' | 'one'. Repeat is a plain ON/OFF switch: one tap repeats THIS song,
+  // another tap stops. There used to be a third 'all' state in the middle, which
+  // is why one tap didn't repeat anything — it landed on 'all' and the song
+  // still advanced. A stored 'all' from that build reads back as 'off'.
+  const [repeat, setRepeat] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('playbackModes') || '{}').repeat === 'one' ? 'one' : 'off';
+    } catch { return 'off'; }
   });
   useEffect(() => {
     try { localStorage.setItem('playbackModes', JSON.stringify({ shuffle, repeat })); } catch { /* full */ }
@@ -170,12 +177,14 @@ export function PlayerProvider({ children }) {
   // Throttle for persisting resume state during playback (localStorage write).
   const lastSaveRef = useRef(0);
 
-  // Repeat-one is enforced by the AUDIO ELEMENT, not by our 'ended' handler.
-  // Native looping is seamless and — crucially — authoritative: with loop set,
-  // 'ended' never fires, so nothing downstream (crossfade, autoplay-radio,
-  // shuffle, a stale playNext) can steal the track away mid-repeat. That race
-  // is why repeat-one skipped to the next song, and why it only "worked" after
-  // manually changing tracks (which re-synced the listener's closure).
+  // Repeat is enforced by the AUDIO ELEMENT, not by our 'ended' handler. Native
+  // looping is seamless and — crucially — authoritative: with loop set, 'ended'
+  // never fires, so nothing downstream (crossfade, autoplay-radio, shuffle, a
+  // stale playNext) can steal the track away mid-repeat.
+  //
+  // It only governs what happens when a song RUNS OUT. Pressing next still skips
+  // (playNext never consults `repeat`), and because loop stays set, the song you
+  // land on repeats in turn — repeat follows you rather than trapping you.
   useEffect(() => {
     repeatRef.current = repeat;
     audioRef.current.loop = repeat === 'one';
@@ -540,7 +549,37 @@ export function PlayerProvider({ children }) {
   }, []); // no deps needed — uses refs for all mutable state
 
   // ─── MediaSession API ────────────────────────────────────────────────
-  // Shows track info on OS lock-screen, taskbar, earphone displays, etc.
+  // Shows track info on the OS lock-screen, taskbar, earphone displays, etc.
+  //
+  // The handlers are registered ONCE, not per-track. They used to be attached
+  // inside the metadata effect, which bails out early when there is no track —
+  // so on a cold start (nothing playing yet) the OS got a media session with no
+  // action handlers at all, and its buttons did nothing until a track change
+  // happened to re-run the effect. That is the "lock screen works sometimes"
+  // bug. Every handler goes through a ref, so registering early is safe.
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+    const actions = {
+      play: () => { audioRef.current.play().catch(() => {}); },
+      pause: () => { audioRef.current.pause(); },
+      stop: () => { audioRef.current.pause(); },
+      previoustrack: () => { playPreviousRef.current?.(); },
+      nexttrack: () => { playNextRef.current?.(); },
+      seekto: (details) => {
+        if (details?.seekTime != null) {
+          audioRef.current.currentTime = details.seekTime;
+        }
+      },
+    };
+    for (const [action, handler] of Object.entries(actions)) {
+      try {
+        navigator.mediaSession.setActionHandler(action, handler);
+      } catch {
+        // Not every action is supported in every browser.
+      }
+    }
+  }, []);
+
   useEffect(() => {
     if (!('mediaSession' in navigator) || !currentTrack) return;
 
@@ -559,28 +598,69 @@ export function PlayerProvider({ children }) {
     } catch {
       // MediaMetadata not supported in some browsers
     }
+  }, [currentTrack]);
 
-    // Wire up hardware buttons
-    const actions = {
-      play: () => { audioRef.current.play().catch(() => {}); },
-      pause: () => { audioRef.current.pause(); },
-      previoustrack: () => { playPreviousRef.current?.(); },
-      nexttrack: () => { playNextRef.current?.(); },
-      seekto: (details) => {
-        if (details.seekTime != null) {
-          audioRef.current.currentTime = details.seekTime;
-        }
-      },
+  // Tell the OS whether we are actually playing. Without this the session sits at
+  // its default 'none' and the platform is free to ignore the controls entirely —
+  // the other half of the flaky-lock-screen bug.
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+    try {
+      navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
+    } catch { /* older browser */ }
+  }, [isPlaying]);
+
+  // Position lets the lock screen draw a live scrubber instead of a dead bar.
+  useEffect(() => {
+    if (!('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) return;
+    if (!duration || !isFinite(duration)) return;
+    try {
+      navigator.mediaSession.setPositionState({
+        duration,
+        position: Math.min(progress, duration),
+        playbackRate: audioRef.current.playbackRate || 1,
+      });
+    } catch { /* position out of range mid-seek — harmless */ }
+  }, [duration, progress]);
+
+  // ─── Headphones / Bluetooth disconnect ───────────────────────────────
+  // When the output device goes away, playback must STOP, not fall back to the
+  // laptop speakers at whatever volume was set — which is the "it breaks the wall
+  // and keeps playing" complaint.
+  //
+  // Android delivers this natively (ACTION_AUDIO_BECOMING_NOISY, see
+  // BackendService.kt). In a desktop browser/WebView2 there is no such broadcast,
+  // so we watch the device list: if the number of audio OUTPUTS drops while we're
+  // playing, something was unplugged and we pause.
+  useEffect(() => {
+    const md = navigator.mediaDevices;
+    if (!md?.addEventListener || !md.enumerateDevices) return undefined;
+
+    let outputs = null;   // null until the first successful count
+    const count = async () => {
+      try {
+        const devices = await md.enumerateDevices();
+        return devices.filter(d => d.kind === 'audiooutput').length;
+      } catch {
+        return null;
+      }
     };
 
-    for (const [action, handler] of Object.entries(actions)) {
-      try {
-        navigator.mediaSession.setActionHandler(action, handler);
-      } catch {
-        // Some actions not supported in all browsers
+    const onChange = async () => {
+      const now = await count();
+      if (now == null) return;
+      const before = outputs;
+      outputs = now;
+      // Fewer outputs than a moment ago = a device disappeared.
+      if (before != null && now < before && !audioRef.current.paused) {
+        audioRef.current.pause();
       }
-    }
-  }, [currentTrack]);
+    };
+
+    count().then(n => { outputs = n; });
+    md.addEventListener('devicechange', onChange);
+    return () => md.removeEventListener('devicechange', onChange);
+  }, []);
 
   // ─── Keyboard shortcuts ──────────────────────────────────────────────
   useEffect(() => {
@@ -685,9 +765,8 @@ export function PlayerProvider({ children }) {
   useEffect(() => {
     if (!currentTrack) return;
     if (queue.length >= 3) return;
-    // repeat-one loops this song forever — nothing "next" is ever needed, so
-    // don't fetch radio picks for a queue that will never be reached.
-    if (repeat === 'all' || repeat === 'one') return;
+    // Repeat used to suppress this. It must NOT: pressing next while repeat is on
+    // still has to go somewhere, and an empty queue made the button dead.
     if (!readAppSettings().autoplay) return;
     if (radioLoadingRef.current) return;
     radioLoadingRef.current = true;
@@ -876,18 +955,30 @@ export function PlayerProvider({ children }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Explicit, NON-toggling commands. Anything that knows which state it wants —
+  // the OS media buttons, a headset unplug, an incoming call — must use these.
+  //
+  // Routing those through togglePlay() was a real bug: "pause" arriving while
+  // already paused would START playback. That is exactly what a Bluetooth
+  // disconnect does (Android sends pause), so the buds coming off could kick the
+  // song out of the phone's speaker instead of stopping it. These also read the
+  // ELEMENT rather than React state, so a command that lands before a re-render
+  // still does the right thing.
+  const pause = useCallback(() => {
+    audioRef.current.pause();
+  }, []);
+
+  const resume = useCallback(() => {
+    if (!currentTrackRef.current) return;
+    resumeAudioCtx();
+    audioRef.current.play().catch(() => {});
+  }, [resumeAudioCtx]);
+
   const togglePlay = useCallback(() => {
-    if (!currentTrack) return;
-    const audio = audioRef.current;
-    if (isPlaying) {
-      audio.pause();
-      // Don't set isPlaying here — the 'pause' event handler will do it
-    } else {
-      resumeAudioCtx();
-      audio.play().catch(e => console.error(e));
-      // Don't set isPlaying here — the 'playing' event handler will do it
-    }
-  }, [currentTrack, isPlaying, resumeAudioCtx]);
+    if (!currentTrackRef.current) return;
+    if (audioRef.current.paused) resume();
+    else pause();
+  }, [pause, resume]);
 
   const seek = useCallback((time) => {
     const audio = audioRef.current;
@@ -917,13 +1008,7 @@ export function PlayerProvider({ children }) {
       const nextTrack = queue[0];
       setQueue(q => q.slice(1));
       playTrack(nextTrack);
-    } else if (repeat === 'all' && history.length > 0) {
-      // Loop: rebuild queue from history and start over
-      const reversed = [...history].reverse();
-      setQueue(reversed.slice(1));
-      playTrack(reversed[0]);
-      setHistory([]);
-    } else if (readAppSettings().autoplay && repeat !== 'all' && !radioLoadingRef.current) {
+    } else if (readAppSettings().autoplay && !radioLoadingRef.current) {
       // Queue exhausted — pull radio similar tracks and keep playing (fallback
       // for when the prefetch effect hasn't topped the queue up in time).
       // The current song keeps playing during the async fetch.
@@ -941,7 +1026,7 @@ export function PlayerProvider({ children }) {
     } else {
       audioRef.current.pause(); // nothing to play next — pause syncs isPlaying via event
     }
-  }, [queue, shuffle, repeat, history, playTrack, fetchRadioTracks]);
+  }, [queue, playTrack, fetchRadioTracks]);
 
   // Keep the ref always pointing to the latest playNext
   useEffect(() => { playNextRef.current = playNext; }, [playNext]);
@@ -998,20 +1083,19 @@ export function PlayerProvider({ children }) {
   const playPreviousRef = useRef(playPrevious);
   useEffect(() => { playPreviousRef.current = playPrevious; }, [playPrevious]);
 
+  // Both of these used to front-insert, so every new add jumped the ones before
+  // it — queue three songs and they played back-to-front. See utils/queue.js for
+  // the ordering rule (and its test).
   const addToQueue = useCallback((track) => {
     const playableTrack = normalizeTrack(track);
     if (!isPlayableOrOffline(playableTrack)) return;
-    // A song the user deliberately queued plays NEXT — it goes to the FRONT,
-    // ahead of everything, including songs queued earlier from the same list.
-    // (It used to land merely ahead of the radio picks, i.e. behind the whole
-    // rest of the album, which felt like the tap had done nothing.)
-    setQueue(q => [playableTrack, ...q.filter(t => getTrackId(t) !== getTrackId(playableTrack))]);
+    setQueue(q => insertQueued(q, playableTrack));
   }, []);
 
   const addNext = useCallback((track) => {
     const playableTrack = normalizeTrack(track);
     if (!isPlayableOrOffline(playableTrack)) return;
-    setQueue(q => [playableTrack, ...q]);
+    setQueue(q => insertQueued(q, playableTrack, { playNext: true }));
   }, []);
 
   const removeFromQueue = useCallback((index) => {
@@ -1092,12 +1176,9 @@ export function PlayerProvider({ children }) {
     }
   }, [playTrack]);
 
-  const cycleRepeat = useCallback(() => {
-    setRepeat(r => {
-      if (r === 'off') return 'all';
-      if (r === 'all') return 'one';
-      return 'off';
-    });
+  // One tap = repeat this song. Another = stop. No third state to tab through.
+  const toggleRepeat = useCallback(() => {
+    setRepeat(r => (r === 'one' ? 'off' : 'one'));
   }, []);
 
   // Recently played persistence
@@ -1129,6 +1210,8 @@ export function PlayerProvider({ children }) {
         playTrack,
         playCollection,
         togglePlay,
+        pause,
+        resume,
         seek,
         changeVolume,
         playNext,
@@ -1140,7 +1223,7 @@ export function PlayerProvider({ children }) {
         reorderQueue,
         clearQueue,
         toggleShuffle,
-        cycleRepeat,
+        toggleRepeat,
       }}
     >
       {children}

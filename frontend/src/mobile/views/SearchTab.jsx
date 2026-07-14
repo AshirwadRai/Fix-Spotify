@@ -50,8 +50,11 @@ export function SearchTab({ onMenu, onOpenArtist, onOpenAlbum, onImportSpotify }
     if (!term) return;
 
     // A pasted Spotify playlist/album link isn't a search — it's an import.
+    // Say so, exactly like the desktop does: pasting a link and getting silence
+    // while the sheet resolves reads as "nothing happened".
     if (isSpotifyUrl(term)) {
       inputRef.current?.blur();
+      toast('Importing from Spotify…');
       onImportSpotify(term);
       return;
     }
@@ -151,7 +154,7 @@ export function SearchTab({ onMenu, onOpenArtist, onOpenAlbum, onImportSpotify }
               onBlur={() => setTimeout(() => setFocused(false), 150)}
               type="search"
               enterKeyHint="search"
-              placeholder="Songs, artists, or a Spotify link"
+              placeholder="What do you want to play?"
               className="w-full h-12 pl-11 pr-10 rounded-xl bg-white text-black text-[15px] placeholder:text-black/50 outline-none"
             />
             {query && (
@@ -223,7 +226,8 @@ export function SearchTab({ onMenu, onOpenArtist, onOpenAlbum, onImportSpotify }
             ))}
             {recents.length === 0 && (
               <p className="text-center text-spotify-text-subdued text-sm mt-16 px-8">
-                Search across JioSaavn and SoundCloud.
+                Search for songs and artists, or paste a Spotify link to import a
+                playlist or album.
               </p>
             )}
           </div>

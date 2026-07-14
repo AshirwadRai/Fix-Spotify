@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import {
-  ChevronDown, Play, Pause, SkipBack, SkipForward, Shuffle, Repeat2, Repeat1,
+  ChevronDown, Play, Pause, SkipBack, SkipForward, Shuffle, Repeat2,
   Heart, ArrowDownCircle, ListMusic, Mic2, Disc3, Check, Menu, Bluetooth,
   MoreVertical, ListPlus,
 } from 'lucide-react';
@@ -45,7 +45,7 @@ const TABS = [
 export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }) {
   const {
     currentTrack, isPlaying, togglePlay, playNext, playPrevious,
-    progress, duration, seek, shuffle, toggleShuffle, repeat, cycleRepeat,
+    progress, duration, seek, shuffle, toggleShuffle, repeat, toggleRepeat,
     queue, reorderQueue, streamQuality,
   } = usePlayer();
   const { startDownload } = useDownloads();
@@ -557,12 +557,12 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
 
           <button
             type="button"
-            aria-label="Repeat"
-            onClick={cycleRepeat}
-            className={`tap p-2 ${repeat !== 'off' ? 'text-spotify-essential-bright-accent' : 'text-white/60'}`}
+            aria-label={repeat === 'one' ? 'Repeat on' : 'Repeat this song'}
+            aria-pressed={repeat === 'one'}
+            onClick={toggleRepeat}
+            className={`tap p-2 ${repeat === 'one' ? 'text-spotify-essential-bright-accent' : 'text-white/60'}`}
           >
-            {/* Replay-style loop icon; second tap shows the "1". */}
-            {repeat === 'one' ? <Repeat1 size={24} /> : <Repeat2 size={24} />}
+            <Repeat2 size={24} />
           </button>
         </div>
 

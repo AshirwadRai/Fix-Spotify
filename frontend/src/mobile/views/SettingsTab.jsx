@@ -42,14 +42,15 @@ function Section({ title, subtitle, children, inset = false }) {
 }
 
 /** A full-width row with a native-feeling toggle. 56px tall = a comfortable tap. */
-function Toggle({ label, hint, checked, onChange }) {
+function Toggle({ label, hint, checked, onChange, disabled = false }) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
+      disabled={disabled}
       onClick={() => onChange(!checked)}
-      className="w-full flex items-center gap-4 py-3 text-left"
+      className="w-full flex items-center gap-4 py-3 text-left disabled:opacity-50"
     >
       <div className="flex-1 min-w-0">
         <p className="text-[15px]">{label}</p>
@@ -169,10 +170,6 @@ export function SettingsTab({ onClose }) {
 
         <StorageSection />
 
-        {/* The desktop build has a YouTube section here. It is deliberately absent:
-            YouTube needs a JavaScript runtime (Deno) to solve its signature
-            challenge, and there is none for Android. Saying so beats leaving the
-            user wondering where the option went. */}
         <Section title="Sources">
           <div className="flex items-start gap-3 py-1">
             <Info size={18} className="text-spotify-text-subdued shrink-0 mt-0.5" />
@@ -180,11 +177,7 @@ export function SettingsTab({ onClose }) {
               <p className="text-[14px]">JioSaavn · SoundCloud</p>
               <p className="text-[12px] text-spotify-text-subdued mt-1 leading-snug">
                 Everything runs on your phone, using your own connection — nothing is
-                routed through a server.
-              </p>
-              <p className="text-[12px] text-spotify-text-subdued mt-2 leading-snug">
-                JioSaavn streams at 320 kbps. YouTube is available as an experiment
-                below.
+                routed through a server. JioSaavn streams at 320 kbps.
               </p>
             </div>
           </div>
@@ -282,7 +275,7 @@ function StorageSection() {
   const blocked = info?.using_fallback;
 
   return (
-    <Section title="Storage" subtitle="Where your downloaded songs hang out 🎧">
+    <Section title="Storage" subtitle="Where your downloaded songs are saved">
       <div className="flex items-start gap-3 py-1">
         <HardDrive size={18} className="text-spotify-text-subdued shrink-0 mt-0.5" />
         <div className="min-w-0 flex-1">
@@ -367,39 +360,24 @@ function YouTubeExperimentalToggle() {
     }
   };
 
+  // Reuses the same Toggle every other setting on this screen uses. It used to be
+  // a bespoke switch with its own sizing, which is why it sat differently and its
+  // knob slid past the edge of the track.
   return (
-    <div className="mt-3 border-t border-white/10 pt-3">
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-[14px]">
-            YouTube <span className="text-[10px] uppercase tracking-wide text-spotify-essential-warning">Beta</span>
-          </p>
-          <p className="text-[12px] text-spotify-text-subdued mt-0.5 leading-snug">
-            {busy
-              ? 'Checking your device…'
-              : state.supported
-                ? 'Adds YouTube as a source. No sign-in needed. May be slower than JioSaavn.'
-                : 'The YouTube extractor could not start on this device.'}
-          </p>
-        </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={state.enabled}
-          disabled={busy || !state.supported}
-          onClick={toggle}
-          className={`relative h-6 w-11 shrink-0 rounded-full transition-colors duration-fast disabled:opacity-40 ${
-            state.enabled ? 'bg-spotify-essential-bright-accent' : 'bg-white/20'
-          }`}
-        >
-          <span
-            className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform duration-fast ${
-              state.enabled ? 'translate-x-5' : 'translate-x-0.5'
-            }`}
-          />
-        </button>
-      </div>
-
+    <div className="mt-3 border-t border-white/10 pt-1">
+      <Toggle
+        label="YouTube"
+        hint={
+          busy
+            ? 'Checking your device…'
+            : state.supported
+              ? 'Adds YouTube as a search and download source. No sign-in needed.'
+              : 'The YouTube extractor could not start on this device.'
+        }
+        checked={!!state.enabled}
+        disabled={busy || !state.supported}
+        onChange={toggle}
+      />
     </div>
   );
 }

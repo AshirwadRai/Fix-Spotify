@@ -151,12 +151,119 @@ def _get_client_no_youtube(self, source_type):
 
 UnifiedSearchService._get_client = _get_client_no_youtube
 
+
+# ──────────────────────────────────────────────────────────────────────────────
+# YouTube downloads
+# ──────────────────────────────────────────────────────────────────────────────
+# DownloadManager sends every youtube.com URL to YouTubeClient, i.e. yt-dlp —
+# which cannot extract YouTube on Android for the same reason searching couldn't:
+# no JS runtime to solve the signature challenge. So "download" on a YouTube track
+# just failed, even with the source enabled and playing fine.
+#
+# It plays because NewPipe hands us a direct, already-deobfuscated audio URL. That
+# URL is an ordinary HTTP file — so downloading is a plain streamed GET. No yt-dlp,
+# no ffmpeg (there is none on Android): we keep the container YouTube served, and
+# the manager's existing tagging step embeds the metadata afterwards exactly as it
+# does for JioSaavn.
+_original_download_from_url = DownloadManager._download_from_url
+
+
+def _is_youtube_url(url: str) -> bool:
+    return any(d in url for d in ("youtube.com", "youtu.be", "music.youtube.com"))
+
+
+def _download_from_url_android(self, url: str, task):
+    if not _is_youtube_url(url):
+        return _original_download_from_url(self, url, task)
+
+    from components.download_manager import DownloadResult
+    import newpipe_yt
+
+    info = newpipe_yt.stream_url(url)
+    if not info or not info.get("url"):
+        return DownloadResult(success=False, error="Could not resolve a YouTube audio stream")
+
+    # Opus in a .webm container is what YouTube serves for its best audio-only
+    # track; m4a otherwise. Keeping the served container is what lets us skip
+    # transcoding — and the tagger reads both.
+    codec = (info.get("codec") or "").lower()
+    ext = "webm" if "opus" in codec or "webm" in codec else "m4a"
+    out_path = f"{task.output_path}.{ext}"
+
+    try:
+        with http_requests.get(info["url"], stream=True, timeout=60) as r:
+            r.raise_for_status()
+            total = int(r.headers.get("Content-Length") or 0)
+            done = 0
+            with open(out_path, "wb") as f:
+                for chunk in r.iter_content(chunk_size=64 * 1024):
+                    if not chunk:
+                        continue
+                    f.write(chunk)
+                    done += len(chunk)
+                    task.downloaded_bytes = done
+                    task.total_bytes = total
+                    if total:
+                        task.progress = min(99.0, done / total * 100.0)
+                    self._emit_progress(task)
+    except Exception as e:
+        # A half-written file is worse than none: the library would list a track
+        # that cannot play.
+        try:
+            os.remove(out_path)
+        except OSError:
+            pass
+        return DownloadResult(success=False, error=f"YouTube download failed: {e}")
+
+    return DownloadResult(
+        success=True,
+        file_path=out_path,
+        file_size=os.path.getsize(out_path),
+        bitrate=info.get("bitrate_kbps") or None,
+        codec=info.get("codec") or None,
+        source="youtube",
+    )
+
+
+DownloadManager._download_from_url = _download_from_url_android
+
 # The sources a mobile search actually queries. iTunes/MusicBrainz are
 # metadata-only (no stream URL) and would just slow the response down; clean
 # metadata still arrives progressively through /api/enrich. YouTube is added
-# only when the experimental toggle turns it on (see /api/youtube/experimental).
+# only when the toggle turns it on (see /api/youtube/experimental).
 PLAYABLE_SEARCH_SOURCES = {SourceType.JIOSAAVN, SourceType.SOUNDCLOUD}
+
+# The same set, as the strings a track's `sources` dict is keyed by.
+# _playable_source_name() gates on THIS one: a track whose only source isn't in
+# here is treated as unplayable and dropped from the results entirely.
 PLAYABLE_SOURCES = {"jiosaavn", "soundcloud"}
+
+
+def _set_youtube(enabled: bool) -> None:
+    """Turn the YouTube source on/off across EVERY switch that gates it.
+
+    There are three, and they must move together:
+      _youtube_enabled       — whether _get_client() will build a YouTube client
+      PLAYABLE_SEARCH_SOURCES — whether search asks YouTube at all
+      PLAYABLE_SOURCES        — whether a YouTube hit survives _playable_source_name
+
+    Flipping the first two but not the third is exactly what "YouTube is on but no
+    song ever shows a YouTube badge" was: search queried YouTube, got results, and
+    then dropped every YouTube-only track on the floor on the way out — because
+    the string set still said only JioSaavn and SoundCloud could play. Three call
+    sites each flipped their own subset by hand; now they all come through here.
+    """
+    global _youtube_enabled
+    _youtube_enabled = enabled
+    for st, name in ((SourceType.YOUTUBE, "youtube"), (SourceType.YOUTUBE_MUSIC, "youtube_music")):
+        if enabled:
+            PLAYABLE_SOURCES.add(name)
+        else:
+            PLAYABLE_SOURCES.discard(name)
+    if enabled:
+        PLAYABLE_SEARCH_SOURCES.add(SourceType.YOUTUBE)
+    else:
+        PLAYABLE_SEARCH_SOURCES.discard(SourceType.YOUTUBE)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1381,14 +1488,12 @@ def youtube_experimental_toggle():
     that SUCCEEDS do we flip the source on — so the UI can honestly say whether
     it works on THIS phone rather than promising something that silently fails.
     """
-    global _youtube_enabled
     want = bool(_body().get("enabled"))
 
     settings = android_env.read_settings()
 
     if not want:
-        _youtube_enabled = False
-        PLAYABLE_SEARCH_SOURCES.discard(SourceType.YOUTUBE)
+        _set_youtube(False)
         settings["youtube_experimental"] = False
         android_env.write_settings(settings)
         return jsonify({"enabled": False, "ok": True})
@@ -1410,8 +1515,7 @@ def youtube_experimental_toggle():
                         "error": "Couldn't get a playable YouTube stream on this "
                                  "device. Leaving YouTube off."}), 200
 
-    _youtube_enabled = True
-    PLAYABLE_SEARCH_SOURCES.add(SourceType.YOUTUBE)
+    _set_youtube(True)
     settings["youtube_experimental"] = True
     android_env.write_settings(settings)
     return jsonify({"enabled": True, "ok": True})
@@ -1493,13 +1597,11 @@ def _warm_up():
     # on-device self-test rather than re-running it at every boot (it's slow),
     # and register the provider here. Fully guarded: if the engine is gone, the
     # source is simply added but returns nothing — never a crash.
-    global _youtube_enabled
     try:
         if android_env.read_settings().get("youtube_experimental"):
             import newpipe_yt
             if newpipe_yt.is_supported():
-                _youtube_enabled = True
-                PLAYABLE_SEARCH_SOURCES.add(SourceType.YOUTUBE)
+                _set_youtube(True)
                 print("[backend] YouTube restored")
     except Exception as e:
         print(f"[backend] YouTube restore skipped: {e}")

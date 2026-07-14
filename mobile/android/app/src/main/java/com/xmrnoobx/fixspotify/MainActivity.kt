@@ -304,7 +304,12 @@ class MainActivity : AppCompatActivity() {
             }
         }, "AndroidPlayer")
 
-        BackendService.instance?.transportListener = object : BackendService.TransportListener {
+        // Registered on the COMPANION, not on `instance`. The service is started
+        // asynchronously, so `instance` is usually still null here — the old
+        // `instance?.transportListener = …` therefore dropped the listener on the
+        // floor most of the time, which is why the lock-screen buttons (and the
+        // pause-on-unplug that rides the same path) only worked sometimes.
+        BackendService.transportListener = object : BackendService.TransportListener {
             override fun onCommand(action: String) {
                 // window.__androidTransport is installed by the mobile React app
                 // (see frontend/src/mobile/androidBridge.js).
