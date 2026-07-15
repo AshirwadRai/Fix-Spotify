@@ -53,6 +53,20 @@ async function resolveAlternateSources(track, tried) {
   }
 }
 
+// ─── Involuntary-pause recovery (cross-device / OEM audio-focus safety) ──────
+// Some OEM audio stacks (notably Motorola / Dolby "Moto Audio") briefly seize
+// audio focus the instant playback starts, to spin up their DSP chain. The
+// Android WebView obeys by pausing our <audio> element, which surfaced on those
+// devices as a song "instantly pausing" the moment it was tapped — even though
+// focus is handed straight back (typically within a few hundred ms). Rather
+// than surrender playback, we wait a short grace period and re-assert play.
+// These bounds guarantee the recovery can never fight a genuine stop: it only
+// fires for pauses we didn't initiate, only just after playback starts, and
+// only a handful of times per track.
+const RESUME_GRACE_MS = 350;          // let focus settle before re-asserting play
+const MAX_RESUME_ATTEMPTS = 3;        // per track — a real stop is never looped
+const FOCUS_GLITCH_WINDOW_MS = 4000;  // only recover pauses right after play start
+
 // Fisher-Yates: a new shuffled copy of an array (does not mutate input).
 function shuffleArray(arr) {
   const a = [...(arr || [])];
@@ -109,6 +123,37 @@ export function PlayerProvider({ children }) {
   // Consecutive fully-failed tracks (all sources dead). Caps auto-skip so a
   // dead queue doesn't loop forever; reset on any successful play.
   const autoSkipRef = useRef(0);
+  // Involuntary-pause recovery (see the constants above the component): `intended`
+  // tracks whether we WANT audio playing, so a system-forced pause (an OEM focus
+  // grab) can be told apart from a real user/OS pause and briefly retried instead
+  // of obeyed. `playStart` bounds recovery to just after playback begins;
+  // `resumeAttempts` bounds it per track; `resumeGrace` holds the pending retry.
+  const intendedPlayingRef = useRef(false);
+  const playStartRef = useRef(0);
+  const resumeAttemptsRef = useRef(0);
+  const resumeGraceRef = useRef(null);
+
+  // Cancel any pending grace-period resume (a fresh intent supersedes it).
+  const clearResumeGrace = useCallback(() => {
+    if (resumeGraceRef.current) {
+      clearTimeout(resumeGraceRef.current);
+      resumeGraceRef.current = null;
+    }
+  }, []);
+  // Mark that we intentionally want audio playing (user/app started or resumed
+  // playback). Opens a fresh recovery window and resets the per-track budget.
+  const markIntentPlay = useCallback(() => {
+    intendedPlayingRef.current = true;
+    playStartRef.current = Date.now();
+    resumeAttemptsRef.current = 0;
+    clearResumeGrace();
+  }, [clearResumeGrace]);
+  // Mark that we intentionally want audio paused (user/OS chose to stop). This
+  // is what keeps focus-loss recovery from ever resuming a genuine pause.
+  const markIntentPause = useCallback(() => {
+    intendedPlayingRef.current = false;
+    clearResumeGrace();
+  }, [clearResumeGrace]);
 
   useEffect(() => { repeatRef.current = repeat; }, [repeat]);
   useEffect(() => { volumeRef.current = volume; }, [volume]);
@@ -151,6 +196,7 @@ export function PlayerProvider({ children }) {
       }
       if (repeatRef.current === 'one') {
         audio.currentTime = 0;
+        markIntentPlay();
         audio.play().catch(() => {});
       } else {
         // Always call the LATEST playNext via ref — no stale closures
@@ -246,6 +292,7 @@ export function PlayerProvider({ children }) {
       } else if (!navigator.onLine) {
         message = 'No internet connection — please reconnect to keep listening';
       }
+      markIntentPause(); // playback truly failed — don't attempt focus recovery
       setPlaybackError(message);
       setIsPlaying(false);
       setIsLoading(false);
@@ -258,15 +305,51 @@ export function PlayerProvider({ children }) {
     const handlePlaying = () => {
       setIsLoading(false);
       setIsPlaying(true);
-      playAttemptRef.current = null; // a source succeeded — stop fallback
-      autoSkipRef.current = 0;       // reset the dead-track skip cap
+      intendedPlayingRef.current = true; // playback is truly underway
+      playAttemptRef.current = null;     // a source succeeded — stop fallback
+      autoSkipRef.current = 0;           // reset the dead-track skip cap
+      if (resumeGraceRef.current) {      // a pending recovery is no longer needed
+        clearTimeout(resumeGraceRef.current);
+        resumeGraceRef.current = null;
+      }
     };
     // Sync UI when audio is paused externally (earphones, OS media controls, etc.)
     const handlePause = () => {
       // Don't set isPlaying false during crossfade (we're fading out intentionally)
-      if (!crossfadingRef.current) {
-        setIsPlaying(false);
+      if (crossfadingRef.current) return;
+
+      // Involuntary-pause recovery: if we still WANT to be playing, the track
+      // hasn't ended, it's actually paused, and this happened right after
+      // playback started, treat it as an OEM audio-focus glitch (e.g. Moto
+      // Audio grabbing focus to init its DSP) rather than a real stop. Wait a
+      // short grace period for focus to return, then re-assert play. Bounded so
+      // a genuine stop is never fought.
+      const involuntary =
+        intendedPlayingRef.current &&
+        audio.paused &&
+        !audio.ended &&
+        (Date.now() - playStartRef.current) < FOCUS_GLITCH_WINDOW_MS;
+
+      if (involuntary && resumeAttemptsRef.current < MAX_RESUME_ATTEMPTS) {
+        if (resumeGraceRef.current) clearTimeout(resumeGraceRef.current);
+        resumeGraceRef.current = setTimeout(() => {
+          resumeGraceRef.current = null;
+          // Re-check under the same conditions — a real pause/skip in the
+          // meantime clears the intent, and the 'playing' handler clears us.
+          if (intendedPlayingRef.current && audio.paused && !audio.ended) {
+            resumeAttemptsRef.current += 1;
+            // Focus loss can suspend the Web Audio graph (normalization) too.
+            const ctx = audioCtxRef.current;
+            if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {});
+            audio.play().catch(() => {});
+          }
+        }, RESUME_GRACE_MS);
+        return; // keep isPlaying true through the grace period (no UI flicker)
       }
+
+      // Genuine pause: user, OS controls, headphones unplugged, track transition,
+      // or recovery budget exhausted.
+      setIsPlaying(false);
     };
     
     audio.addEventListener('timeupdate', handleTimeUpdate);
@@ -287,6 +370,10 @@ export function PlayerProvider({ children }) {
       audio.removeEventListener('waiting', handleWaiting);
       audio.removeEventListener('playing', handlePlaying);
       audio.removeEventListener('pause', handlePause);
+      if (resumeGraceRef.current) {
+        clearTimeout(resumeGraceRef.current);
+        resumeGraceRef.current = null;
+      }
     };
   }, []); // empty deps — listeners never re-attached, refs handle freshness
 
@@ -428,6 +515,7 @@ export function PlayerProvider({ children }) {
         currentAudio.src = nextAudio.src;
         currentAudio.currentTime = nextAudio.currentTime;
         currentAudio.volume = volumeRef.current;
+        markIntentPlay();
         currentAudio.play().catch(() => {});
 
         nextAudio.pause();
@@ -446,7 +534,7 @@ export function PlayerProvider({ children }) {
         crossfadingRef.current = false;
       }
     }, interval);
-  }, []); // no deps needed — uses refs for all mutable state
+  }, [markIntentPlay]); // otherwise ref-driven — all mutable state via refs
 
   // ─── MediaSession API ────────────────────────────────────────────────
   // Shows track info on OS lock-screen, taskbar, earphone displays, etc.
@@ -471,8 +559,8 @@ export function PlayerProvider({ children }) {
 
     // Wire up hardware buttons
     const actions = {
-      play: () => { audioRef.current.play().catch(() => {}); },
-      pause: () => { audioRef.current.pause(); },
+      play: () => { markIntentPlay(); audioRef.current.play().catch(() => {}); },
+      pause: () => { markIntentPause(); audioRef.current.pause(); },
       previoustrack: () => { playPreviousRef.current?.(); },
       nexttrack: () => { playNextRef.current?.(); },
       seekto: (details) => {
@@ -504,8 +592,10 @@ export function PlayerProvider({ children }) {
           if (currentTrackRef.current) {
             const audio = audioRef.current;
             if (audio.paused) {
+              markIntentPlay();
               audio.play().catch(() => {});
             } else {
+              markIntentPause();
               audio.pause();
             }
           }
@@ -735,6 +825,7 @@ export function PlayerProvider({ children }) {
       // the save on the first source dropped those tracks from Recently Played.
       saveRecentlyPlayed(playableTrack);
 
+      markIntentPlay();
       await audio.play();
 
     } catch (err) {
@@ -751,20 +842,22 @@ export function PlayerProvider({ children }) {
         setIsLoading(false);
       }
     }
-  }, [currentTrack]);
+  }, [currentTrack, markIntentPlay]);
 
   const togglePlay = useCallback(() => {
     if (!currentTrack) return;
     const audio = audioRef.current;
     if (isPlaying) {
+      markIntentPause();
       audio.pause();
       // Don't set isPlaying here — the 'pause' event handler will do it
     } else {
+      markIntentPlay();
       resumeAudioCtx();
       audio.play().catch(e => console.error(e));
       // Don't set isPlaying here — the 'playing' event handler will do it
     }
-  }, [currentTrack, isPlaying, resumeAudioCtx]);
+  }, [currentTrack, isPlaying, resumeAudioCtx, markIntentPlay, markIntentPause]);
 
   const seek = useCallback((time) => {
     const audio = audioRef.current;
@@ -811,14 +904,16 @@ export function PlayerProvider({ children }) {
             playTrack(adds[0]);
             setQueue(adds.slice(1));
           } else {
+            markIntentPause();
             audioRef.current.pause(); // nothing to play next — stop cleanly (syncs isPlaying)
           }
         })
         .finally(() => { radioLoadingRef.current = false; });
     } else {
+      markIntentPause();
       audioRef.current.pause(); // nothing to play next — pause syncs isPlaying via event
     }
-  }, [queue, shuffle, repeat, history, playTrack, fetchRadioTracks]);
+  }, [queue, shuffle, repeat, history, playTrack, fetchRadioTracks, markIntentPause]);
 
   // Keep the ref always pointing to the latest playNext
   useEffect(() => { playNextRef.current = playNext; }, [playNext]);
@@ -862,6 +957,7 @@ export function PlayerProvider({ children }) {
         playAttemptRef.current = null;
         audio.src = proxyUrl;
         audio.volume = volumeRef.current;
+        markIntentPlay();
         audio.play().catch(() => {});
       } else {
         setPlaybackError("This track is not playable yet");
@@ -869,7 +965,7 @@ export function PlayerProvider({ children }) {
         setIsLoading(false);
       }
     }
-  }, [history, currentTrack]);
+  }, [history, currentTrack, markIntentPlay]);
 
   // Ref for playPrevious (used by MediaSession and keyboard shortcuts)
   const playPreviousRef = useRef(playPrevious);
