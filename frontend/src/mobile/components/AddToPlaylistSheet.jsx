@@ -38,9 +38,9 @@ export function AddToPlaylistSheet({ track, onClose }) {
 
   return (
     <>
-      <div className="fixed inset-0 z-[60] bg-black/60" onClick={onClose} aria-hidden="true" />
+      <div className="sheet-scrim fixed inset-0 z-[60] bg-black/60" onClick={onClose} aria-hidden="true" />
 
-      <div className="fixed inset-x-0 bottom-0 z-[61] bg-spotify-elevated-base rounded-t-2xl pb-safe max-h-[75vh] flex flex-col">
+      <div className="sheet-panel fixed inset-x-0 bottom-0 z-[61] bg-spotify-elevated-base rounded-t-2xl pb-safe max-h-[75vh] flex flex-col">
         <div className="flex justify-center pt-2 pb-1 shrink-0">
           <div className="w-9 h-1 rounded-full bg-white/25" />
         </div>

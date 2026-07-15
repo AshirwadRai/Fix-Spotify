@@ -177,6 +177,9 @@ export function PlayerProvider({ children }) {
   const pendingSeekRef = useRef(0);
   // Throttle for persisting resume state during playback (localStorage write).
   const lastSaveRef = useRef(0);
+  // URL of the track we've already prefetched — prevents duplicate fetches and
+  // lets playTrack know the browser cache is warm.
+  const preloadedUrlRef = useRef(null);
 
   // Repeat is enforced by the AUDIO ELEMENT, not by our 'ended' handler. Native
   // looping is seamless and — crucially — authoritative: with loop set, 'ended'
@@ -225,6 +228,38 @@ export function PlayerProvider({ children }) {
         queueRef.current.length > 0
       ) {
         startCrossfade(crossfadeDuration);
+      }
+
+      // ─── Gapless prefetch (when crossfade is OFF) ──────────────
+      // 15s before the song ends, fire a lightweight Range request for the next
+      // track's proxy URL. The browser and the backend both cache the response,
+      // so when playTrack sets audio.src the bytes are already warm. This is the
+      // fix for the "slight lag / gap between songs" report. Skipped when
+      // crossfade is active (it handles its own preload) or when there's nothing
+      // in the queue.
+      if (
+        crossfadeDuration === 0 &&
+        !preloadedUrlRef.current &&
+        repeatRef.current !== 'one' &&
+        audio.duration &&
+        isFinite(audio.duration) &&
+        audio.duration - audio.currentTime <= 15 &&
+        audio.duration - audio.currentTime > 1 &&
+        queueRef.current.length > 0
+      ) {
+        const peek = queueRef.current[0];
+        const src = getPlayableSource(peek);
+        const peekUrl = peek?.sources?.[src]?.url;
+        if (peekUrl) {
+          const proxyUrl = buildProxyUrl(peekUrl, src);
+          preloadedUrlRef.current = proxyUrl;
+          // Fetch the first 16KB — enough to warm the TCP connection and the
+          // backend's upstream socket, without downloading the whole track.
+          fetch(proxyUrl, {
+            headers: { Range: 'bytes=0-16383' },
+            priority: 'low',
+          }).catch(() => { /* best-effort — playTrack handles the real load */ });
+        }
       }
     };
     const handleDurationChange = () => {
@@ -899,6 +934,8 @@ export function PlayerProvider({ children }) {
     // restore the last session on reopen). Default is play-now.
     const autoplay = opts.autoplay !== false;
     pendingSeekRef.current = autoplay ? 0 : (opts.resumeAt || 0);
+    // Reset so the next song's prefetch fires fresh.
+    preloadedUrlRef.current = null;
 
     setCurrentTrack(playableTrack);
     setIsPlaying(autoplay);

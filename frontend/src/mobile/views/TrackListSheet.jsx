@@ -159,7 +159,7 @@ export function TrackListSheet({ view, onClose, onMenu }) {
               className="fixed inset-0 z-10 cursor-default"
               onClick={() => setFlagMenu(false)}
             />
-            <div className="absolute right-3 top-full z-20 -mt-1 w-52 overflow-hidden rounded-xl bg-spotify-elevated-base shadow-2xl animate-fade-in">
+            <div className="absolute right-3 top-full z-20 -mt-1 w-52 overflow-hidden rounded-xl bg-spotify-elevated-base shadow-2xl dropdown-reveal">
               <button
                 type="button"
                 onClick={() => { setFlagMenu(false); setName(view.title); setRenaming((v) => !v); }}

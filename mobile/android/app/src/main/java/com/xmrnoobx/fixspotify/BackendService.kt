@@ -139,14 +139,23 @@ class BackendService : Service() {
     /**
      * Audio focus — the other half of behaving like a real music app.
      *
-     * BECOMING_NOISY only covers the headset going away. Focus covers everything
-     * else that should stop us: an incoming call, a navigation prompt, another
-     * player starting. Without requesting it we were simply a process making
-     * noise, and two apps would play over each other.
+     * BECOMING_NOISY only covers the headset going away. Focus covers the rest:
+     * an incoming call, another player starting. Without requesting it we were
+     * just a process making noise, and two apps would play over each other.
      *
-     * LOSS is permanent (something else took over) -> pause. TRANSIENT is a
-     * momentary interruption -> pause and resume after, but only if the user
-     * hadn't already paused it themselves.
+     * The response to each loss type is NOT the same, and getting that wrong was
+     * the "song pauses whenever a notification arrives / random auto-pause on some
+     * phones" chaos:
+     *
+     *   CAN_DUCK  — a notification chime or nav prompt. A music app does NOT pause
+     *               for these; that is exactly what made every WhatsApp ping stop
+     *               the song. We don't duck either (the user asked the level not to
+     *               move, and the WebView <audio> has no clean ramp) — we play on
+     *               underneath. Many OEM assistants also grab CAN_DUCK for hotword
+     *               detection the instant you start a track, which is why the pause
+     *               looked device-specific.
+     *   TRANSIENT — a call. Pause, and resume when focus returns.
+     *   LOSS      — something took over for good. Pause and stay paused.
      */
     private var audioFocusRequest: AudioFocusRequest? = null
     private var resumeOnFocusGain = false
@@ -157,14 +166,12 @@ class BackendService : Service() {
                 resumeOnFocusGain = false
                 transportListener?.onCommand("pause")
             }
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
-                // Duck-capable losses are treated as a pause too: the WebView's
-                // <audio> gives us no volume ramp worth the complexity here.
-                // ponytail: pause instead of duck; add ducking if a notification
-                // chime silencing the song for a second becomes annoying.
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
                 resumeOnFocusGain = isPlaying
                 transportListener?.onCommand("pause")
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                // Deliberately nothing — keep playing under the chime.
             }
             AudioManager.AUDIOFOCUS_GAIN -> {
                 if (resumeOnFocusGain) {
@@ -411,10 +418,14 @@ class BackendService : Service() {
         trackArtist = artist
         isPlaying = playing
 
-        // Hold focus exactly while sound is coming out of us, so other apps know
-        // to duck/stop — and so we hear about it when THEY need the audio.
+        // Request focus when we start, and KEEP it while paused (abandoned only in
+        // onDestroy). Dropping it on pause was the bug behind the song getting
+        // stuck paused: a focus-loss pause reports playing=false straight back into
+        // this method, which abandoned the request — so the AUDIOFOCUS_GAIN that
+        // was supposed to resume us had no listener left to arrive at, and the
+        // track sat paused forever. Holding focus across a pause is also just what
+        // real music apps do, so resume-after-a-call works.
         if (playing && !wasPlaying) requestAudioFocus()
-        else if (!playing && wasPlaying) abandonAudioFocus()
 
         mediaSession.setMetadata(
             MediaMetadataCompat.Builder()

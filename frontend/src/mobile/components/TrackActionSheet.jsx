@@ -69,12 +69,12 @@ export function TrackActionSheet({ track, onClose, onOpenArtist, onOpenAlbum, on
     <>
       {/* Scrim. Tapping outside the sheet closes it — standard on Android. */}
       <div
-        className="fixed inset-0 z-[60] bg-black/60"
+        className="sheet-scrim fixed inset-0 z-[60] bg-black/60"
         onClick={onClose}
         aria-hidden="true"
       />
 
-      <div className="fixed inset-x-0 bottom-0 z-[61] bg-spotify-elevated-base rounded-t-2xl pb-safe">
+      <div className="sheet-panel fixed inset-x-0 bottom-0 z-[61] bg-spotify-elevated-base rounded-t-2xl pb-safe">
         {/* Drag handle — purely a visual affordance that this dismisses downward. */}
         <div className="flex justify-center pt-2 pb-1">
           <div className="w-9 h-1 rounded-full bg-white/25" />

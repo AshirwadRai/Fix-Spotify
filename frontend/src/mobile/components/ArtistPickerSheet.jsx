@@ -14,12 +14,12 @@ export function ArtistPickerSheet({ artists = [], onPick, onClose }) {
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex flex-col justify-end bg-black/60 animate-fade-in"
+      className="sheet-scrim fixed inset-0 z-[60] flex flex-col justify-end bg-black/60"
       onClick={onClose}
       role="presentation"
     >
       <div
-        className="bg-spotify-elevated-base rounded-t-2xl pb-safe animate-slide-up"
+        className="sheet-panel bg-spotify-elevated-base rounded-t-2xl pb-safe"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"

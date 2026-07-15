@@ -377,6 +377,15 @@ function Shell() {
             it was the backdrop-filter re-compositing against the scrolling
             content. That's solved in BottomNav by promoting it to its own layer.) */}
         <div className="absolute inset-x-0 bottom-0 z-30">
+          {/* Spotify's signature: the scrolling content doesn't just stop at the
+              bar, it DISSOLVES into it. A short transparent-to-black gradient sits
+              above the mini-player so the last rows of the list fade out as they
+              approach the glass, instead of sliding under a hard edge. Purely
+              decorative, so it never eats a tap. */}
+          <div
+            className="pointer-events-none absolute inset-x-0 bottom-full h-8 bg-gradient-to-t from-black/70 to-transparent"
+            aria-hidden="true"
+          />
           <MiniPlayer onExpand={openNowPlaying} />
           <BottomNav active={tab} onChange={changeTab} />
         </div>

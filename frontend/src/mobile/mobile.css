@@ -49,6 +49,55 @@
   to   { transform: translateY(0); }
 }
 
+/* ── Bottom sheets ───────────────────────────────────────────────────────────
+   Every action sheet (song ⋮, long-press menu, add-to-playlist, artist picker)
+   opens with the SAME motion, so the app has one gesture instead of each sheet
+   popping in differently. The panel rises from the bottom while the scrim fades;
+   the ease decelerates into rest so it reads as "settled", not "stopped".
+
+   ~300ms is deliberately a touch slower than a tap — a sheet is a context change,
+   and rushing it is what made the menus feel like they snapped onto the screen
+   rather than arriving. */
+.sheet-scrim {
+  animation: fade-in 260ms var(--ease-soft);
+}
+.sheet-panel {
+  animation: sheet-rise 300ms var(--ease-soft);
+  transform-origin: bottom center;
+  will-change: transform;
+}
+@keyframes sheet-rise {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
+/* A centred dialog (rename, create playlist) grows in place rather than rising —
+   it isn't anchored to an edge, so a rise would look like it fell from nowhere. */
+.dialog-pop {
+  animation: dialog-pop 220ms var(--ease-spring);
+}
+@keyframes dialog-pop {
+  from { opacity: 0; transform: scale(0.94); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* Dropdown menus (⋮ / flag menus in Now Playing, track lists, etc.) descend from
+   their trigger with a soft scale + fade, like Spotify's context menus. 280ms is
+   slightly longer than a tap so the menu reads as "appearing" not "popping". The
+   transform-origin top-right keeps it anchored to its trigger button. */
+.dropdown-reveal {
+  animation: dropdown-reveal 280ms var(--ease-soft);
+  transform-origin: top right;
+}
+@keyframes dropdown-reveal {
+  from { opacity: 0; transform: scale(0.9) translateY(-6px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet-scrim, .sheet-panel, .dialog-pop, .dropdown-reveal { animation: none; }
+}
+
 @keyframes toastIn {
   from { opacity: 0; transform: translateY(8px) scale(0.96); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
@@ -91,6 +140,15 @@
   body,
   #root {
     height: 100%;
+    /* The DOCUMENT itself must never scroll or rubber-band — only the .scroll-y
+       panes inside it do. This is the real fix for "the bottom bar shifts down on
+       a hard fling": the bars are absolutely positioned inside the app shell, so
+       they can only move if the shell moves, and the shell moves only if the
+       document overscrolls. overscroll-behavior alone wasn't enough — Chromium's
+       root scroller is <html>, not <body>, and without overflow:hidden a hard
+       fling still bounces the page. Locking all three kills it at the source. */
+    overflow: hidden;
+    overscroll-behavior: none;
   }
 
   html {
@@ -137,12 +195,14 @@
   height: env(safe-area-inset-bottom, 0px);
 }
 
-/* Momentum scrolling inside the tab panes. */
+/* Momentum scrolling inside the tab panes. `overscroll-behavior: none` (not just
+   `contain`) so a fling that reaches the end of a pane stops dead instead of
+   handing a bounce back to the now-locked document. */
 .scroll-y {
   overflow-y: auto;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
-  overscroll-behavior-y: contain;
+  overscroll-behavior: none;
 }
 
 /* Horizontal card rails on Home. */

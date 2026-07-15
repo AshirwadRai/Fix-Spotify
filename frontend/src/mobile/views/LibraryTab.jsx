@@ -106,14 +106,14 @@ export function LibraryTab({ onOpenList, onOpenCollection }) {
         {/* Centered modal, Spotify-style: autoFocus pops the keyboard open. */}
         {creating && (
           <div
-            className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 px-8 animate-fade-in"
+            className="sheet-scrim fixed inset-0 z-40 flex items-center justify-center bg-black/70 px-8"
             onClick={() => setCreating(false)}
             role="presentation"
           >
             <form
               onSubmit={submitNew}
               onClick={(e) => e.stopPropagation()}
-              className="w-full max-w-sm rounded-2xl bg-spotify-elevated-base p-5"
+              className="dialog-pop w-full max-w-sm rounded-2xl bg-spotify-elevated-base p-5"
             >
               <p className="text-center text-[17px] font-bold">Name your playlist</p>
               <input
@@ -310,8 +310,8 @@ function RowMenu({ title, pinned, isPlaylist, onPin, onEdit, onDelete, onClose }
 
   return (
     <>
-      <div className="fixed inset-0 z-[60] bg-black/60" onClick={onClose} aria-hidden="true" />
-      <div className="fixed inset-x-0 bottom-0 z-[61] rounded-t-2xl bg-spotify-elevated-base pb-safe">
+      <div className="sheet-scrim fixed inset-0 z-[60] bg-black/60" onClick={onClose} aria-hidden="true" />
+      <div className="sheet-panel fixed inset-x-0 bottom-0 z-[61] rounded-t-2xl bg-spotify-elevated-base pb-safe">
         <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-white/25" />
         <p className="truncate px-5 pt-3 pb-2 text-[13px] font-semibold">{title}</p>
         {items.map(({ Icon, label, onClick, danger }) => (
@@ -337,14 +337,14 @@ function RenameDialog({ initial, onSave, onClose }) {
   const [value, setValue] = useState(initial);
   return (
     <div
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 px-8 animate-fade-in"
+      className="sheet-scrim fixed inset-0 z-[70] flex items-center justify-center bg-black/70 px-8"
       onClick={onClose}
       role="presentation"
     >
       <form
         onSubmit={(e) => { e.preventDefault(); onSave(value); }}
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-sm rounded-2xl bg-spotify-elevated-base p-5"
+        className="dialog-pop w-full max-w-sm rounded-2xl bg-spotify-elevated-base p-5"
       >
         <p className="text-center text-[17px] font-bold">Rename playlist</p>
         <input

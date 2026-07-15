@@ -236,7 +236,7 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
             onClick={() => setMenuOpen(false)}
           />
           <div
-            className="absolute right-3 z-20 w-52 overflow-hidden rounded-xl bg-spotify-elevated-base shadow-2xl animate-fade-in"
+            className="absolute right-3 z-20 w-52 overflow-hidden rounded-xl bg-spotify-elevated-base shadow-2xl dropdown-reveal"
             style={{ top: 'calc(env(safe-area-inset-top, 0px) + 3.25rem)' }}
           >
             <button
