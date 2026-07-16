@@ -13,6 +13,8 @@ Search, stream and download music from **JioSaavn**, **SoundCloud** and **YouTub
 Windows — [Tauri v2](https://v2.tauri.app/) + [React](https://react.dev/) + Python
 Android — WebView + [Chaquopy](https://chaquo.com/chaquopy/) + [NewPipeExtractor](https://github.com/TeamNewPipe/NewPipeExtractor)
 
+**Just want to use the app? → [User Guide](docs/USER_GUIDE.md)**
+
 </div>
 
 ---
