@@ -18,7 +18,9 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.Environment
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
@@ -74,6 +76,9 @@ class BackendService : Service() {
         private const val TAG = "FixSpotifySvc"
         private const val CHANNEL_ID = "fixspotify_playback"
         private const val NOTIFICATION_ID = 1
+
+        /** Grace period before a TRANSIENT focus loss becomes a real pause. */
+        private const val FOCUS_LOSS_GRACE_MS = 350L
 
         // Transport commands delivered back to this service by the notification
         // buttons (see actionIntent / onStartCommand).
@@ -151,30 +156,67 @@ class BackendService : Service() {
      *               for these; that is exactly what made every WhatsApp ping stop
      *               the song. We don't duck either (the user asked the level not to
      *               move, and the WebView <audio> has no clean ramp) — we play on
-     *               underneath. Many OEM assistants also grab CAN_DUCK for hotword
-     *               detection the instant you start a track, which is why the pause
-     *               looked device-specific.
-     *   TRANSIENT — a call. Pause, and resume when focus returns.
+     *               underneath.
+     *   TRANSIENT — a call. Pause after a GRACE PERIOD (see below), resume after.
      *   LOSS      — something took over for good. Pause and stay paused.
      */
     private var audioFocusRequest: AudioFocusRequest? = null
     private var resumeOnFocusGain = false
 
+    private val focusHandler = Handler(Looper.getMainLooper())
+    private var pendingPause: Runnable? = null
+
+    private fun cancelPendingPause() {
+        pendingPause?.let { focusHandler.removeCallbacks(it) }
+        pendingPause = null
+    }
+
+    /**
+     * How long a TRANSIENT loss must last before we actually pause.
+     *
+     * Some OEM audio stacks — Motorola's Dolby Atmos service is the one we caught
+     * doing it — seize transient focus for 50-200ms to spin up their DSP pipeline
+     * the instant another app requests focus. Obeying that instantly is why "tap a
+     * song and it immediately pauses" reproduced on a Moto G85 and on nothing else
+     * we had to hand: we paused, and the recovery then depended on an
+     * AUDIOFOCUS_GAIN surviving a Kotlin -> JS -> React -> <audio> round-trip.
+     *
+     * Waiting this out is what production players do. A grab that resolves inside
+     * the window never becomes a pause at all, so the fragile resume path is never
+     * exercised. A real interruption (a call) outlasts it comfortably, and pausing
+     * ~350ms late is imperceptible against a ringtone.
+     */
     private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
         when (change) {
             AudioManager.AUDIOFOCUS_LOSS -> {
+                // Permanent — no point waiting.
+                cancelPendingPause()
                 resumeOnFocusGain = false
                 transportListener?.onCommand("pause")
             }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
-                resumeOnFocusGain = isPlaying
-                transportListener?.onCommand("pause")
+                cancelPendingPause()
+                val r = Runnable {
+                    pendingPause = null
+                    // Re-read rather than capturing: if the user paused by hand
+                    // during the grace window, there is nothing to pause and
+                    // nothing to resume later either.
+                    resumeOnFocusGain = isPlaying
+                    if (isPlaying) transportListener?.onCommand("pause")
+                }
+                pendingPause = r
+                focusHandler.postDelayed(r, FOCUS_LOSS_GRACE_MS)
             }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
                 // Deliberately nothing — keep playing under the chime.
             }
             AudioManager.AUDIOFOCUS_GAIN -> {
-                if (resumeOnFocusGain) {
+                // Focus came back while the grace timer was still running: the loss
+                // was a blip, the song never stopped, and there is nothing to
+                // resume. Just drop the pending pause.
+                val wasBlip = pendingPause != null
+                cancelPendingPause()
+                if (!wasBlip && resumeOnFocusGain) {
                     resumeOnFocusGain = false
                     transportListener?.onCommand("play")
                 }
@@ -193,13 +235,17 @@ class BackendService : Service() {
                     .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                     .build()
             )
-            .setOnAudioFocusChangeListener(focusListener)
+            // Passing the handler explicitly pins every callback to the main
+            // thread, so `pendingPause` is only ever touched from one thread and
+            // needs no locking.
+            .setOnAudioFocusChangeListener(focusListener, focusHandler)
             .build()
             .also { audioFocusRequest = it }
         audioManager().requestAudioFocus(req)
     }
 
     private fun abandonAudioFocus() {
+        cancelPendingPause()
         audioFocusRequest?.let { audioManager().abandonAudioFocusRequest(it) }
     }
 
