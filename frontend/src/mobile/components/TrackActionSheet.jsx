@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Heart, Download, ListPlus, FolderPlus, User, Disc3, Check, Trash2 } from 'lucide-react';
+import { Heart, Download, ListPlus, FolderPlus, User, Disc3, Check, Trash2, ListX } from 'lucide-react';
 import { usePlayer } from '../../store/PlayerContext';
 import { useDownloads } from '../../store/DownloadsContext';
 import { getBestArtworkUrl, cleanText } from '../../utils/tracks';
 import { isLiked, toggleLiked } from '../../utils/likes';
 import { isDownloaded, deleteDownload } from '../../utils/downloads';
+import { removeTrackFromPlaylist } from '../usePlaylists';
 import { api } from '../../api';
 import { toast } from '../../utils/toast';
 
@@ -13,8 +14,13 @@ import { toast } from '../../utils/toast';
  *
  * A phone has no right-click and no hover, so every per-track action lives
  * behind the row's ⋮ button and surfaces here as a thumb-sized list.
+ *
+ * `from` is the list the ⋮ was tapped in — { playlistId, playlistName } when
+ * that's a playlist of the user's, otherwise null. It's what lets this sheet
+ * offer "Remove from this playlist"; opened from search or an album there is
+ * nothing to remove the song from, so the row simply isn't there.
  */
-export function TrackActionSheet({ track, onClose, onOpenArtist, onOpenAlbum, onAddToPlaylist }) {
+export function TrackActionSheet({ track, from, onClose, onOpenArtist, onOpenAlbum, onAddToPlaylist }) {
   const { addToQueue } = usePlayer();
   const { startDownload } = useDownloads();
   const [liked, setLiked] = useState(false);
@@ -55,6 +61,16 @@ export function TrackActionSheet({ track, onClose, onOpenArtist, onOpenAlbum, on
         },
     { icon: ListPlus, label: 'Add to queue', onClick: () => addToQueue(track) },
     { icon: FolderPlus, label: 'Add to playlist', onClick: () => onAddToPlaylist(track) },
+    ...(from?.playlistId
+      ? [{
+          icon: ListX,
+          label: `Remove from ${cleanText(from.playlistName) || 'this playlist'}`,
+          onClick: () => {
+            removeTrackFromPlaylist(from.playlistId, track);
+            toast('Removed from playlist');
+          },
+        }]
+      : []),
     { icon: User, label: 'Go to artist', onClick: () => onOpenArtist(track.artist) },
     ...(track.album
       ? [{

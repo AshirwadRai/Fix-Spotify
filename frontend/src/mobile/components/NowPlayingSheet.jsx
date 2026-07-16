@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   ChevronDown, Play, Pause, SkipBack, SkipForward, Shuffle, Repeat2,
   Heart, ArrowDownCircle, ListMusic, Mic2, Disc3, Check, Menu, Bluetooth,
-  MoreVertical, ListPlus,
+  Plus,
 } from 'lucide-react';
 import { usePlayer } from '../../store/PlayerContext';
 import { useDownloads } from '../../store/DownloadsContext';
@@ -65,7 +65,6 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
   const [lyricsLoading, setLyricsLoading] = useState(false);
   const [liked, setLiked] = useState(false);
   const [scrubbing, setScrubbing] = useState(null);
-  const [menuOpen, setMenuOpen] = useState(false);          // ⋮ overflow menu
   const [seekFlash, setSeekFlash] = useState(null);         // { side, total } — double-tap feedback
   const lastTapRef = useRef({ t: 0, x: 0 });
   const seekFlashTimer = useRef(null);
@@ -213,42 +212,12 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
           <p className="text-[11px] uppercase tracking-widest text-white/70 truncate px-2">
             {currentTrack.album ? cleanText(currentTrack.album) : 'Now playing'}
           </p>
-          {/* ⋮ overflow — share / add to playlist. */}
-          <button
-            type="button"
-            aria-label="More options"
-            aria-expanded={menuOpen}
-            onClick={() => setMenuOpen((v) => !v)}
-            className="tap p-1 -mr-1"
-          >
-            <MoreVertical size={22} />
-          </button>
+          {/* Balances the close button so the album name stays centred. The ⋮
+              that used to live here held exactly one item, "Add to playlist" —
+              now a + next to the heart, one tap instead of two. */}
+          <div className="w-7 shrink-0" />
         </div>
       </div>
-
-      {menuOpen && (
-        <>
-          {/* Tap-away catcher */}
-          <button
-            type="button"
-            aria-label="Close menu"
-            className="fixed inset-0 z-10 cursor-default"
-            onClick={() => setMenuOpen(false)}
-          />
-          <div
-            className="absolute right-3 z-20 w-52 overflow-hidden rounded-xl bg-spotify-elevated-base shadow-2xl dropdown-reveal"
-            style={{ top: 'calc(env(safe-area-inset-top, 0px) + 3.25rem)' }}
-          >
-            <button
-              type="button"
-              onClick={() => { setMenuOpen(false); onAddToPlaylist?.(currentTrack); }}
-              className="tap flex w-full items-center gap-3 px-4 py-3 text-left text-[14px] active:bg-white/10"
-            >
-              <ListPlus size={17} className="text-spotify-text-subdued" /> Add to playlist
-            </button>
-          </div>
-        </>
-      )}
 
       {/* Pane — the ONLY flexible row. min-h-0 lets it shrink and scroll rather
           than pushing the controls below the fold. */}
@@ -445,6 +414,14 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
           <div className="flex items-center gap-1 pt-0.5">
             <button
               type="button"
+              aria-label="Add to playlist"
+              onClick={() => onAddToPlaylist?.(currentTrack)}
+              className="tap p-2"
+            >
+              <Plus size={22} className="text-white/70" />
+            </button>
+            <button
+              type="button"
               aria-label={liked ? 'Remove from Liked Songs' : 'Add to Liked Songs'}
               onClick={() => toggleLiked(currentTrack)}
               className="tap p-2"
@@ -481,6 +458,8 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
             max={duration || 0}
             step={0.5}
             value={shown}
+            // Drives the track's white "already played" fill.
+            style={{ '--pct': `${duration > 0 ? (shown / duration) * 100 : 0}%` }}
             onChange={(e) => setScrubbing(Number(e.target.value))}
             onPointerUp={() => { if (scrubbing != null) { seek(scrubbing); setScrubbing(null); } }}
             onTouchEnd={() => { if (scrubbing != null) { seek(scrubbing); setScrubbing(null); } }}

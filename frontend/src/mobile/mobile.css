@@ -275,10 +275,17 @@
   background: transparent;
   height: 24px;
 }
+/* The played part is white, the rest stays grey. Chromium has no ::-*-progress
+   pseudo, so the fill is a hard-stop gradient driven by --pct, which the
+   component sets from value/max. */
 .slider::-webkit-slider-runnable-track {
   height: 4px;
   border-radius: 2px;
-  background: rgba(255, 255, 255, 0.25);
+  background: linear-gradient(
+    to right,
+    #fff 0 var(--pct, 0%),
+    rgba(255, 255, 255, 0.25) var(--pct, 0%) 100%
+  );
 }
 .slider::-webkit-slider-thumb {
   -webkit-appearance: none;
@@ -316,6 +323,9 @@
   width: 4px;
   height: 100%;
   border-radius: 2px;
+  /* An EQ band runs from −dB to +dB with 0 in the middle — "filled up to here"
+     would be a lie, so it opts out of .slider's played-part gradient. */
+  background: rgba(255, 255, 255, 0.25);
 }
 .slider-v::-webkit-slider-thumb {
   margin-top: 0;

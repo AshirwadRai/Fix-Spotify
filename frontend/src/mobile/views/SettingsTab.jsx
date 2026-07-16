@@ -203,6 +203,7 @@ export function SettingsTab({ onClose }) {
               max="12"
               step="1"
               value={Number(settings.crossfadeDuration) || 0}
+              style={{ '--pct': `${((Number(settings.crossfadeDuration) || 0) / 12) * 100}%` }}
               onChange={(e) => writeAppSetting('crossfadeDuration', Number(e.target.value))}
               aria-label="Crossfade duration in seconds"
               className="slider flex-1"

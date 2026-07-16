@@ -1,11 +1,13 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useMemo } from 'react';
 import { ChevronLeft, Play, Pause, Shuffle, Heart, Music2, Trash2, Pencil, WifiOff, Camera, ArrowDownCircle, MoreVertical } from 'lucide-react';
 import { usePlayer } from '../../store/PlayerContext';
 import { useDownloads } from '../../store/DownloadsContext';
 import { TrackItem } from '../components/TrackItem';
 import { PlaylistCover } from '../../components/PlaylistCover';
 import { usePlayFrom } from '../usePlayFrom';
-import { deletePlaylist, renamePlaylist, setPlaylistImage } from '../usePlaylists';
+import { deletePlaylist, renamePlaylist, setPlaylistImage, usePlaylists } from '../usePlaylists';
+import { useLikedSongs } from '../../utils/likes';
+import { useOfflineTracks } from '../../utils/downloads';
 import { sameTrack, getBestArtworkUrl } from '../../utils/tracks';
 import { useDominantColor } from '../../utils/useDominantColor';
 import { toast } from '../../utils/toast';
@@ -57,6 +59,28 @@ export function TrackListSheet({ view, onClose, onMenu }) {
   const [cover, setCover] = useState(view?.image || null);
   const [flagMenu, setFlagMenu] = useState(false);   // ⚑ → edit / delete
 
+  // ── Live tracks, NOT the caller's snapshot ──────────────────────────────
+  // `view.tracks` is frozen at the moment the row was tapped, so anything that
+  // changed the underlying list while this sheet was open — deleting a download,
+  // unliking a song, removing one from the playlist — left a ghost row behind
+  // until you navigated away and back. Subscribing to the stores here fixes it
+  // for every local list at once; `view.tracks` stays the fallback for callers
+  // that hand us an ad-hoc list with no store behind it.
+  const likedLive = useLikedSongs();
+  const offlineMap = useOfflineTracks();
+  const playlistsLive = usePlaylists();
+  const tracks = useMemo(() => {
+    if (view?.kind === 'liked') return likedLive;
+    if (view?.kind === 'offline') {
+      return Object.values(offlineMap || {}).map((e) => e.track).filter(Boolean);
+    }
+    if (view?.kind === 'playlist') {
+      const p = playlistsLive.find((x) => x.id === view.id);
+      return p ? (p.tracks || []) : (view.tracks || []);
+    }
+    return view?.tracks || [];
+  }, [view, likedLive, offlineMap, playlistsLive]);
+
   // Scroll-linked hero collapse — same treatment as the artist/album sheet.
   const HERO_FADE_PX = 180;
   const [fade, setFade] = useState(0);
@@ -88,12 +112,11 @@ export function TrackListSheet({ view, onClose, onMenu }) {
   // Ambient hero tint: the region around the cover takes on the cover's own
   // dominant colour (fading to the base further down), so the header area feels
   // lit by the artwork the way Spotify's playlist pages do.
-  const heroArt = cover || (view?.tracks?.length ? getBestArtworkUrl(view.tracks[0]) : '');
+  const heroArt = cover || (tracks.length ? getBestArtworkUrl(tracks[0]) : '');
   const heroRgb = useDominantColor(heroArt);
 
   if (!view) return null;
 
-  const tracks = view.tracks || [];
   // "Is THIS collection the one currently playing?" — drives the button colours,
   // so the green shuffle/play state actually reflects what you're hearing.
   const playingThis = !!currentTrack && tracks.some((t) => sameTrack(t, currentTrack));
@@ -320,7 +343,10 @@ export function TrackListSheet({ view, onClose, onMenu }) {
             currentTrack={currentTrack}
             isPlaying={isPlaying}
             onPlay={() => playFrom(tracks, i)}
-            onMenu={onMenu}
+            // Hand the sheet the playlist this row came FROM, so it can offer
+            // "Remove from this playlist". A track object alone can't say where
+            // it's being shown.
+            onMenu={(t) => onMenu(t, isPlaylist ? { playlistId: view.id, playlistName: view.title } : null)}
           />
         ))}
 

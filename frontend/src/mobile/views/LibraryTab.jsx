@@ -299,7 +299,9 @@ function RowMenu({ title, pinned, isPlaylist, onPin, onEdit, onDelete, onClose }
   const items = [
     {
       Icon: pinned ? PinOff : Pin,
-      label: pinned ? 'Unpin' : `Pin to top (max ${MAX_PINS})`,
+      // Just "Pin". The 5-pin cap only matters at the moment you hit it, and the
+      // toast says so then — spelling it out on every menu is noise.
+      label: pinned ? 'Unpin' : 'Pin',
       onClick: onPin,
     },
     ...(isPlaylist ? [

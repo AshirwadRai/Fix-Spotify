@@ -27,6 +27,7 @@ function Shell() {
   const [nowPlayingOpen, setNowPlayingOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [menuTrack, setMenuTrack] = useState(null);
+  const [menuFrom, setMenuFrom] = useState(null);             // { playlistId, playlistName } the ⋮ was opened from
   const [playlistTrack, setPlaylistTrack] = useState(null);   // "add to playlist" target
   const [spotifyUrl, setSpotifyUrl] = useState(null);         // pasted Spotify import
   const [artistChoices, setArtistChoices] = useState(null);   // multi-artist credit -> picker
@@ -158,7 +159,11 @@ function Shell() {
 
   const openNowPlaying = useCallback(() => { pushOverlay(); setNowPlayingOpen(true); }, [pushOverlay]);
   const openSettings = useCallback(() => { pushOverlay(); setSettingsOpen(true); }, [pushOverlay]);
-  const openMenu = useCallback((t) => { pushOverlay(); setMenuTrack(t); }, [pushOverlay]);
+  const openMenu = useCallback((t, from = null) => {
+    pushOverlay();
+    setMenuFrom(from);
+    setMenuTrack(t);
+  }, [pushOverlay]);
 
   const openAddToPlaylist = useCallback((t) => {
     setMenuTrack(null);       // close the action sheet first — never stack two
@@ -401,6 +406,7 @@ function Shell() {
 
       <TrackActionSheet
         track={menuTrack}
+        from={menuFrom}
         onClose={() => setMenuTrack(null)}
         onOpenArtist={openArtist}
         onOpenAlbum={openAlbum}
