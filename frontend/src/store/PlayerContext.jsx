@@ -5,6 +5,9 @@ import { apiUrl } from '../utils/config';
 import { getOfflineEntry, removeOfflineEntry } from '../utils/downloads';
 import { insertQueued } from '../utils/queue';
 import { EQ_BANDS, resolveGains, isFlat } from '../utils/eq';
+// Platform check only. Every function in androidBridge is a no-op off Android, so
+// importing it into the shared store costs the desktop bundle nothing.
+import { isAndroid } from '../mobile/androidBridge';
 import { api } from '../api';
 
 const PlayerContext = createContext();
@@ -696,16 +699,28 @@ export function PlayerProvider({ children }) {
     } catch { /* position out of range mid-seek — harmless */ }
   }, [duration, progress]);
 
-  // ─── Headphones / Bluetooth disconnect ───────────────────────────────
+  // ─── Headphones / Bluetooth disconnect (DESKTOP ONLY) ────────────────
   // When the output device goes away, playback must STOP, not fall back to the
   // laptop speakers at whatever volume was set — which is the "it breaks the wall
   // and keeps playing" complaint.
   //
-  // Android delivers this natively (ACTION_AUDIO_BECOMING_NOISY, see
-  // BackendService.kt). In a desktop browser/WebView2 there is no such broadcast,
-  // so we watch the device list: if the number of audio OUTPUTS drops while we're
-  // playing, something was unplugged and we pause.
+  // Android delivers this natively and precisely: ACTION_AUDIO_BECOMING_NOISY in
+  // BackendService.kt fires only for a real output going away. A desktop browser
+  // has no such broadcast, so there we fall back to watching the device list and
+  // inferring a disconnect from the output count dropping.
+  //
+  // That inference MUST NOT run on Android, and this guard is the whole bug
+  // behind "the song pauses the instant I play it" on a Moto G85 — a device we
+  // could never reproduce on, because the cause is the OEM's audio stack, not
+  // ours. Phones that ship an audio-processing service (Motorola's Dolby layer is
+  // the one we caught) re-route the output the moment playback starts. That fires
+  // `devicechange`, enumerateDevices() momentarily reports one fewer output, this
+  // watcher read the dip as "headphones unplugged", and paused the song a beat
+  // after it began. Every fix so far went into the Kotlin focus handling and so
+  // never touched it, because the pause was never coming from there.
   useEffect(() => {
+    if (isAndroid()) return undefined;   // BECOMING_NOISY owns this on Android
+
     const md = navigator.mediaDevices;
     if (!md?.addEventListener || !md.enumerateDevices) return undefined;
 

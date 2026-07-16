@@ -9,8 +9,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.media.AudioAttributes
-import android.media.AudioFocusRequest
 import android.media.AudioManager
 import androidx.core.content.ContextCompat
 import android.content.pm.ServiceInfo
@@ -18,9 +16,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.Environment
-import android.os.Handler
 import android.os.IBinder
-import android.os.Looper
 import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
@@ -77,9 +73,6 @@ class BackendService : Service() {
         private const val CHANNEL_ID = "fixspotify_playback"
         private const val NOTIFICATION_ID = 1
 
-        /** Grace period before a TRANSIENT focus loss becomes a real pause. */
-        private const val FOCUS_LOSS_GRACE_MS = 350L
-
         // Transport commands delivered back to this service by the notification
         // buttons (see actionIntent / onStartCommand).
         const val ACTION_PLAY_PAUSE = "com.xmrnoobx.fixspotify.PLAY_PAUSE"
@@ -129,7 +122,34 @@ class BackendService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    // Android fires this when audio is about to start blasting out of the phone
+    // ── Audio focus policy ────────────────────────────────────────────────────
+    //
+    // This service deliberately does NOT request audio focus. That looks like a
+    // missing feature; it is the opposite. The app already holds focus — just not
+    // from this class — and claiming it a second time is what broke playback.
+    //
+    // The page drives navigator.mediaSession (see PlayerContext), which makes
+    // CHROMIUM open a media session for the WebView and request Android audio
+    // focus for the <audio> element itself. Focus is tracked per LISTENER, not per
+    // app, so a request from this service does not "top up" the app's claim — it
+    // EVICTS Chromium's. Chromium's documented response to AUDIOFOCUS_LOSS is to
+    // pause the media element. We were knocking out our own playback a beat after
+    // it started, from inside the same process.
+    //
+    // It only reproduced on some phones because whether the WebView opens that
+    // media session depends on the WebView build the device ships (a Moto G85 hit
+    // it; the same APK was fine elsewhere). Chasing it in a focus handler could
+    // never have worked — the pause happens inside Chromium and never travels
+    // through transportListener.
+    //
+    // Letting Chromium own focus is also better behaviour than what we hand-rolled:
+    // it pauses for a call, stops when another player starts, and DUCKS for a
+    // notification chime instead of killing the song.
+    //
+    // BECOMING_NOISY below stays. It is a broadcast, not a focus claim, so it
+    // costs nothing and Chromium does not cover it.
+    //
+    // Android fires it when audio is about to start blasting out of the phone
     // speaker because the headset went away (unplugged, or Bluetooth
     // disconnected). Pausing is the expected behaviour — and the only reliable
     // signal for it; there is no "buds disconnected" callback to poll for.
@@ -139,114 +159,6 @@ class BackendService : Service() {
                 transportListener?.onCommand("pause")
             }
         }
-    }
-
-    /**
-     * Audio focus — the other half of behaving like a real music app.
-     *
-     * BECOMING_NOISY only covers the headset going away. Focus covers the rest:
-     * an incoming call, another player starting. Without requesting it we were
-     * just a process making noise, and two apps would play over each other.
-     *
-     * The response to each loss type is NOT the same, and getting that wrong was
-     * the "song pauses whenever a notification arrives / random auto-pause on some
-     * phones" chaos:
-     *
-     *   CAN_DUCK  — a notification chime or nav prompt. A music app does NOT pause
-     *               for these; that is exactly what made every WhatsApp ping stop
-     *               the song. We don't duck either (the user asked the level not to
-     *               move, and the WebView <audio> has no clean ramp) — we play on
-     *               underneath.
-     *   TRANSIENT — a call. Pause after a GRACE PERIOD (see below), resume after.
-     *   LOSS      — something took over for good. Pause and stay paused.
-     */
-    private var audioFocusRequest: AudioFocusRequest? = null
-    private var resumeOnFocusGain = false
-
-    private val focusHandler = Handler(Looper.getMainLooper())
-    private var pendingPause: Runnable? = null
-
-    private fun cancelPendingPause() {
-        pendingPause?.let { focusHandler.removeCallbacks(it) }
-        pendingPause = null
-    }
-
-    /**
-     * How long a TRANSIENT loss must last before we actually pause.
-     *
-     * Some OEM audio stacks — Motorola's Dolby Atmos service is the one we caught
-     * doing it — seize transient focus for 50-200ms to spin up their DSP pipeline
-     * the instant another app requests focus. Obeying that instantly is why "tap a
-     * song and it immediately pauses" reproduced on a Moto G85 and on nothing else
-     * we had to hand: we paused, and the recovery then depended on an
-     * AUDIOFOCUS_GAIN surviving a Kotlin -> JS -> React -> <audio> round-trip.
-     *
-     * Waiting this out is what production players do. A grab that resolves inside
-     * the window never becomes a pause at all, so the fragile resume path is never
-     * exercised. A real interruption (a call) outlasts it comfortably, and pausing
-     * ~350ms late is imperceptible against a ringtone.
-     */
-    private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
-        when (change) {
-            AudioManager.AUDIOFOCUS_LOSS -> {
-                // Permanent — no point waiting.
-                cancelPendingPause()
-                resumeOnFocusGain = false
-                transportListener?.onCommand("pause")
-            }
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
-                cancelPendingPause()
-                val r = Runnable {
-                    pendingPause = null
-                    // Re-read rather than capturing: if the user paused by hand
-                    // during the grace window, there is nothing to pause and
-                    // nothing to resume later either.
-                    resumeOnFocusGain = isPlaying
-                    if (isPlaying) transportListener?.onCommand("pause")
-                }
-                pendingPause = r
-                focusHandler.postDelayed(r, FOCUS_LOSS_GRACE_MS)
-            }
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
-                // Deliberately nothing — keep playing under the chime.
-            }
-            AudioManager.AUDIOFOCUS_GAIN -> {
-                // Focus came back while the grace timer was still running: the loss
-                // was a blip, the song never stopped, and there is nothing to
-                // resume. Just drop the pending pause.
-                val wasBlip = pendingPause != null
-                cancelPendingPause()
-                if (!wasBlip && resumeOnFocusGain) {
-                    resumeOnFocusGain = false
-                    transportListener?.onCommand("play")
-                }
-            }
-        }
-    }
-
-    // minSdk is 26 (O), so AudioFocusRequest is always available — no legacy branch.
-    private fun audioManager() = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-
-    private fun requestAudioFocus() {
-        val req = audioFocusRequest ?: AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                    .build()
-            )
-            // Passing the handler explicitly pins every callback to the main
-            // thread, so `pendingPause` is only ever touched from one thread and
-            // needs no locking.
-            .setOnAudioFocusChangeListener(focusListener, focusHandler)
-            .build()
-            .also { audioFocusRequest = it }
-        audioManager().requestAudioFocus(req)
-    }
-
-    private fun abandonAudioFocus() {
-        cancelPendingPause()
-        audioFocusRequest?.let { audioManager().abandonAudioFocusRequest(it) }
     }
 
     override fun onCreate() {
@@ -308,7 +220,6 @@ class BackendService : Service() {
             Log.w(TAG, "stop_server failed", e)
         }
         mediaSession.release()
-        try { abandonAudioFocus() } catch (e: Exception) { /* never requested */ }
         try { unregisterReceiver(becomingNoisy) } catch (e: Exception) { /* never registered */ }
         instance = null
         serverReady.set(false)
@@ -459,19 +370,13 @@ class BackendService : Service() {
         positionMs: Long,
         artworkUrl: String?
     ) {
-        val wasPlaying = isPlaying
         trackTitle = title.ifBlank { "Fix_Spotify" }
         trackArtist = artist
         isPlaying = playing
 
-        // Request focus when we start, and KEEP it while paused (abandoned only in
-        // onDestroy). Dropping it on pause was the bug behind the song getting
-        // stuck paused: a focus-loss pause reports playing=false straight back into
-        // this method, which abandoned the request — so the AUDIOFOCUS_GAIN that
-        // was supposed to resume us had no listener left to arrive at, and the
-        // track sat paused forever. Holding focus across a pause is also just what
-        // real music apps do, so resume-after-a-call works.
-        if (playing && !wasPlaying) requestAudioFocus()
+        // No audio-focus request here — Chromium already holds focus for the
+        // <audio> element and a second claim from this process evicts it. See the
+        // note above audioManager().
 
         mediaSession.setMetadata(
             MediaMetadataCompat.Builder()
