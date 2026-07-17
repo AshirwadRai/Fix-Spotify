@@ -418,7 +418,9 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
               onClick={() => onAddToPlaylist?.(currentTrack)}
               className="tap p-2"
             >
-              <Plus size={22} className="text-white/70" />
+              <span className="flex h-[26px] w-[26px] items-center justify-center rounded-full border-2 border-white/70">
+                <Plus size={16} className="text-white/70" />
+              </span>
             </button>
             <button
               type="button"

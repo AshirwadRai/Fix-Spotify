@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { WifiOff, Wifi, ArrowUpCircle, X } from 'lucide-react';
 import { api } from '../api';
 import { PlayerProvider, usePlayer } from '../store/PlayerContext';
@@ -69,6 +69,29 @@ function Shell() {
     // the playback state's timestamp, so it stays accurate between updates.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentTrack, isPlaying, duration]);
+
+  // Re-anchor the lock-screen scrubber on a SEEK. The effect above extrapolates
+  // position between updates from a single anchor, which is right for normal
+  // playback but WRONG the instant the user scrubs: a seek is a discontinuity
+  // the OS can't predict, so without a fresh anchor the lock-screen bar keeps
+  // running from the old spot (the "progress out of sync / frozen" report). We
+  // detect the jump instead of streaming every tick — a normal tick moves
+  // ~0.25s, so anything past ~1.2s is a seek, and only that re-crosses the bridge.
+  const lastPosRef = useRef(0);
+  useEffect(() => {
+    const jumped = Math.abs(progress - lastPosRef.current) > 1.2;
+    lastPosRef.current = progress;
+    if (jumped) {
+      reportPlayback({
+        track: currentTrack,
+        isPlaying,
+        duration,
+        position: progress,
+        artwork: currentTrack ? getBestArtworkUrl(currentTrack) : '',
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [progress]);
 
   // Reopening the app restores the last song PAUSED. But a reconnecting
   // Bluetooth headset (or the lingering media notification) can fire a PLAY

@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { Heart, Plus, Music2, ArrowDownToLine, Disc3, Pin, PinOff, Pencil, Trash2 } from 'lucide-react';
-import { usePins, togglePin, isPinned, rowId, sortPinned, MAX_PINS } from '../../utils/pins';
+import { usePins, togglePin, isPinned, rowId, MAX_PINS } from '../../utils/pins';
 import { useLikedSongs } from '../../utils/likes';
 import { useSavedCollections } from '../../utils/collections';
 import { useOfflineTracks } from '../../utils/downloads';
@@ -40,9 +40,6 @@ export function LibraryTab({ onOpenList, onOpenCollection }) {
     [offlineMap]
   );
 
-  // Pins float their row to the top of its own group (playlists stay among
-  // playlists), which keeps the filter chips meaningful — a pinned album jumping
-  // into the Playlists list would just be confusing.
   const pins = usePins();
   // The row whose long-press menu is open: { id, title, playlistId? }.
   const [menu, setMenu] = useState(null);
@@ -70,14 +67,69 @@ export function LibraryTab({ onOpenList, onOpenCollection }) {
   const showAlbums = filter === 'all' || filter === 'albums';
   const showArtists = filter === 'all' || filter === 'artists';
 
-  const sortedPlaylists = useMemo(
-    () => sortPinned(playlists, pins, (p) => rowId('playlist', p)),
+  // Pins float to the VERY top, mixing playlists and albums in the order they
+  // were pinned — so a pinned album can sit above a playlist. (It used to sort
+  // within each group, which meant a pinned album could never rise past the
+  // playlists rendered above it.) Only kinds visible under the current filter
+  // are included, so the filter chips still mean something.
+  const pinnedEntries = useMemo(() => {
+    const entries = [];
+    if (showPlaylists) entries.push(...playlists.map((p) => ({ kind: 'playlist', item: p })));
+    if (showAlbums) entries.push(...albums.map((c) => ({ kind: 'album', item: c })));
+    return entries
+      .filter((e) => pins.includes(rowId(e.kind, e.item)))
+      .sort((a, b) => pins.indexOf(rowId(a.kind, a.item)) - pins.indexOf(rowId(b.kind, b.item)));
+  }, [playlists, albums, pins, showPlaylists, showAlbums]);
+
+  const unpinnedPlaylists = useMemo(
+    () => playlists.filter((p) => !pins.includes(rowId('playlist', p))),
     [playlists, pins]
   );
-  const sortedAlbums = useMemo(
-    () => sortPinned(albums, pins, (c) => rowId('album', c)),
+  const unpinnedAlbums = useMemo(
+    () => albums.filter((c) => !pins.includes(rowId('album', c))),
     [albums, pins]
   );
+
+  // One renderer for both kinds, so the pinned block and the group lists below
+  // it produce identical rows.
+  const renderRow = (kind, item) => {
+    const id = rowId(kind, item);
+    if (kind === 'playlist') {
+      return (
+        <Row
+          key={`pl-${item.id}`}
+          Icon={Music2}
+          cover={<PlaylistCover tracks={item.tracks || []} image={item.image} size={56} />}
+          title={item.name}
+          active={!!currentTrack && (item.tracks || []).some((t) => sameTrack(t, currentTrack))}
+          subtitle={`Playlist · ${(item.tracks || []).length} songs`}
+          pinned={pins.includes(id)}
+          onMenu={() => setMenu({ id, title: item.name, playlistId: item.id })}
+          onClick={() =>
+            onOpenList({
+              kind: 'playlist',
+              id: item.id,
+              title: item.name,
+              image: item.image,
+              tracks: item.tracks || [],
+            })
+          }
+        />
+      );
+    }
+    return (
+      <Row
+        key={`al-${id}`}
+        image={item.image}
+        Icon={Disc3}
+        title={cleanText(item.name)}
+        subtitle={`${item.type || 'Album'} · ${cleanText(item.artist) || 'Various'}`}
+        pinned={pins.includes(id)}
+        onMenu={() => setMenu({ id, title: cleanText(item.name) })}
+        onClick={() => onOpenCollection(item)}
+      />
+    );
+  };
 
   const submitNew = (e) => {
     e.preventDefault();
@@ -186,52 +238,12 @@ export function LibraryTab({ onOpenList, onOpenCollection }) {
           </>
         )}
 
-        {showPlaylists &&
-          sortedPlaylists.map((p) => {
-            const id = rowId('playlist', p);
-            return (
-              <Row
-                key={p.id}
-                Icon={Music2}
-                cover={
-                  <PlaylistCover tracks={p.tracks || []} image={p.image} size={56} />
-                }
-                title={p.name}
-                // Green title while a song from this playlist is playing — same
-                // signal a playing song row gives.
-                active={!!currentTrack && (p.tracks || []).some((t) => sameTrack(t, currentTrack))}
-                subtitle={`Playlist · ${(p.tracks || []).length} songs`}
-                pinned={pins.includes(id)}
-                onMenu={() => setMenu({ id, title: p.name, playlistId: p.id })}
-                onClick={() =>
-                  onOpenList({
-                    kind: 'playlist',
-                    id: p.id,
-                    title: p.name,
-                    image: p.image,
-                    tracks: p.tracks || [],
-                  })
-                }
-              />
-            );
-          })}
+        {/* Pinned rows first, any kind, in pin order. */}
+        {pinnedEntries.map((e) => renderRow(e.kind, e.item))}
 
-        {showAlbums &&
-          sortedAlbums.map((c, i) => {
-            const id = rowId('album', c);
-            return (
-              <Row
-                key={`al-${c.name}-${i}`}
-                image={c.image}
-                Icon={Disc3}
-                title={cleanText(c.name)}
-                subtitle={`${c.type || 'Album'} · ${cleanText(c.artist) || 'Various'}`}
-                pinned={pins.includes(id)}
-                onMenu={() => setMenu({ id, title: cleanText(c.name) })}
-                onClick={() => onOpenCollection(c)}
-              />
-            );
-          })}
+        {showPlaylists && unpinnedPlaylists.map((p) => renderRow('playlist', p))}
+
+        {showAlbums && unpinnedAlbums.map((c) => renderRow('album', c))}
 
         {showArtists &&
           artists.map((c, i) => (

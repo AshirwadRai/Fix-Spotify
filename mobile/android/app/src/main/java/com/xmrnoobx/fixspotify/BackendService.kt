@@ -401,7 +401,11 @@ class BackendService : Service() {
                     if (playing) PlaybackStateCompat.STATE_PLAYING
                     else PlaybackStateCompat.STATE_PAUSED,
                     positionMs,
-                    1.0f
+                    // Playback SPEED, and the lock screen extrapolates the
+                    // scrubber from (position + elapsed × speed). Paused MUST be
+                    // 0f, or some OEM lock screens keep the bar creeping forward
+                    // over a stopped song. 1f only while actually playing.
+                    if (playing) 1.0f else 0.0f
                 )
                 .build()
         )

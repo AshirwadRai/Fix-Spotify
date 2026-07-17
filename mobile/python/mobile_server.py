@@ -403,6 +403,45 @@ def _clean_artwork_urls(artwork_urls: Dict[str, Any]) -> Dict[str, str]:
     }
 
 
+# Resolved stream URLs, cached briefly.
+#
+# Starting one song resolves its stream URL at least TWICE within a second:
+# /api/stream_info (the quality badge) and /api/proxy_stream (the audio itself),
+# plus once more per step if the proxy walks the bitrate ladder. Each resolve is
+# a real network round trip — a JioSaavn auth-token call, or a full yt-dlp /
+# NewPipe extraction for SoundCloud / YouTube — so the duplicate is pure latency
+# on every play. The resolved URL is deterministic for a given (source, url,
+# bitrate), so we memoise it.
+#
+# TTL, not permanent: these are time-limited signed CDN URLs. 5 minutes is far
+# inside their real lifetime (hours) yet short enough that a much-later replay
+# re-resolves a fresh one. On an upstream 4xx the proxy evicts the entry so a
+# retry never re-serves a URL that has actually gone stale.
+_STREAM_CACHE: Dict[tuple, tuple] = {}   # (source, url, bitrate) -> (stream_url, expires_at)
+_STREAM_TTL = 300.0
+
+
+def _resolve_stream_url_cached(url: str, source: str, bitrate: int = 320) -> Optional[str]:
+    key = (source, url, bitrate)
+    now = time.monotonic()
+    hit = _STREAM_CACHE.get(key)
+    if hit and hit[1] > now:
+        return hit[0]
+    resolved = _resolve_stream_url(url, source, bitrate)
+    if resolved:
+        # ponytail: plain dict with a crude size cap, bounded mainly by the TTL.
+        # A real LRU only if a single 5-min window ever resolves 256+ distinct
+        # tracks, which no one listening to music does.
+        if len(_STREAM_CACHE) > 256:
+            _STREAM_CACHE.clear()
+        _STREAM_CACHE[key] = (resolved, now + _STREAM_TTL)
+    return resolved
+
+
+def _evict_stream_url(url: str, source: str, bitrate: int) -> None:
+    _STREAM_CACHE.pop((source, url, bitrate), None)
+
+
 def _resolve_stream_url(url: str, source: str, bitrate: int = 320) -> Optional[str]:
     """Resolve a source page URL into a direct, playable stream URL."""
     if source in ("youtube", "youtube_music"):
@@ -650,7 +689,8 @@ def stream_info():
     source = _arg("source")
     bitrate = _int_arg("bitrate", 320)
     try:
-        stream_url = _resolve_stream_url(_arg("url"), source, bitrate)
+        # Cached: proxy_stream is about to resolve the very same URL a beat later.
+        stream_url = _resolve_stream_url_cached(_arg("url"), source, bitrate)
         if not stream_url:
             return jsonify({"bitrate_kbps": None, "codec": None,
                             "error": "Could not resolve stream"})
@@ -690,7 +730,7 @@ def proxy_stream():
     range_header = request.headers.get("Range", "bytes=0-")
 
     def resolve_and_fetch(br):
-        s_url = _resolve_stream_url(url, source, br)
+        s_url = _resolve_stream_url_cached(url, source, br)
         if not s_url:
             return None, None
         headers = {
@@ -703,6 +743,10 @@ def proxy_stream():
         r = http_requests.get(s_url, headers=headers, stream=True, timeout=30)
         if r.status_code in (403, 404, 410, 500, 502, 503):
             r.close()
+            # A cached URL that upstream now rejects is stale — drop it so the
+            # next attempt (next ladder step, or a replay) re-resolves fresh
+            # instead of serving the same dead URL from cache.
+            _evict_stream_url(url, source, br)
             return None, r.status_code
         return r, None
 
