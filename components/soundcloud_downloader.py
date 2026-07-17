@@ -70,6 +70,60 @@ class DownloadResult:
     format_used: Optional[str] = None
 
 
+# ─── Format selection ─────────────────────────────────────────────────────────
+# SoundCloud offers several transcodings of the same track, and two kinds of
+# them are traps. Picking purely on bitrate — which is what we used to do —
+# walks into both, because the traps advertise the HIGHEST bitrates.
+#
+# 1. HLS (`protocol: m3u8_native`). The "url" is an .m3u8 PLAYLIST, not audio.
+#    We hand that URL to an <audio> element via /api/proxy_stream, and Chromium
+#    — so every Android WebView — has no HLS support at all. It fetches a few
+#    hundred bytes of "#EXTM3U..." text and the track dies. A real example:
+#    a track offering http_mp3_128 AND hls_aac_160k picked the HLS one purely
+#    because 160 > 128.
+#
+# 2. `_preview` formats. Go+/monetized tracks expose only a 30-SECOND SNIPPET
+#    (the URL says /preview/0/30/), while the track metadata still reports the
+#    full 3:36 duration. We served that snippet as if it were the song.
+#
+# If neither trap leaves anything behind, we do NOT have the track: return None
+# and let the caller fall back to another source, rather than half-play it.
+_PROGRESSIVE_PROTOCOLS = ("http", "https")
+
+
+def _is_preview(fmt: Dict[str, Any]) -> bool:
+    return (
+        "preview" in (fmt.get("format_id") or "").lower()
+        or "/preview/" in (fmt.get("url") or "")
+    )
+
+
+def pick_audio_format(
+    formats: List[Dict[str, Any]], max_bitrate: int
+) -> Optional[Dict[str, Any]]:
+    """The best full, progressive, audio-only format at or under max_bitrate.
+
+    None means SoundCloud has nothing we can actually play end to end.
+    """
+    usable = [
+        f
+        for f in (formats or [])
+        if f.get("acodec") != "none"
+        and f.get("vcodec") == "none"
+        and f.get("protocol") in _PROGRESSIVE_PROTOCOLS
+        and not _is_preview(f)
+    ]
+    if not usable:
+        return None
+
+    within = [f for f in usable if (f.get("abr") or 0) <= max_bitrate * 1.1]
+    if within:
+        return max(within, key=lambda f: f.get("abr") or 0)
+    # Everything is over the ceiling — the quietest is the closest to honouring
+    # it, and is still a real stream.
+    return min(usable, key=lambda f: f.get("abr") or 0)
+
+
 class SoundCloudClient:
     """
     SoundCloud client using yt-dlp for search and download.
@@ -241,7 +295,11 @@ class SoundCloudClient:
             return None
 
     def get_streaming_url(self, url: str, max_bitrate: int = 256) -> Optional[str]:
-        """Get a direct streaming URL for the best audio format without downloading."""
+        """Get a direct streaming URL for the best audio format without downloading.
+
+        Returns None when SoundCloud has no full, progressive stream for this
+        track — see pick_audio_format(). The caller falls back to another source.
+        """
         import yt_dlp
 
         ydl_opts = self._get_ydl_opts(quiet=True, extract_flat=False)
@@ -250,30 +308,15 @@ class SoundCloudClient:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
 
-            formats = info.get("formats", [])
-            audio_formats = [
-                f for f in formats 
-                if f.get("acodec") != "none" and f.get("vcodec") == "none"
-            ]
-
-            if not audio_formats:
-                return None
-
-            audio_formats.sort(key=lambda f: f.get("abr", 0) or 0)
-
-            best_format = None
-            for fmt in audio_formats:
-                abr = fmt.get("abr", 0) or 0
-                if abr <= max_bitrate * 1.1:
-                    best_format = fmt
-                else:
-                    break
-
+            best_format = pick_audio_format(info.get("formats", []), max_bitrate)
             if not best_format:
-                best_format = audio_formats[0]
-
+                logger.info(
+                    f"No full progressive audio stream for {url} "
+                    "(HLS-only or preview-only) — caller should try another source"
+                )
+                return None
             return best_format.get("url")
-            
+
         except Exception as e:
             logger.error(f"Failed to get streaming URL for {url}: {e}")
             return None
@@ -337,31 +380,17 @@ class SoundCloudClient:
                 download=False,
             )
 
-        formats = info.get("formats", [])
-        audio_formats = [
-            f
-            for f in formats
-            if f.get("acodec") != "none" and f.get("vcodec") == "none"
-        ]
-
-        if not audio_formats:
-            return DownloadResult(success=False, error="No audio formats found")
-
-        # Sort by bitrate
-        audio_formats.sort(key=lambda f: f.get("abr", 0) or 0)
-
-        # Find best format up to max_bitrate
-        # NOTE: yt-dlp's 'abr' is in kbps, max_bitrate is also in kbps
-        best_format = None
-        for fmt in audio_formats:
-            abr = fmt.get("abr", 0) or 0
-            if abr <= max_bitrate * 1.1:  # 10% tolerance
-                best_format = fmt
-            else:
-                break
+        best_format = pick_audio_format(info.get("formats", []), max_bitrate)
 
         if not best_format:
-            best_format = audio_formats[0]
+            # Same rule as streaming: a 30-second preview is not the track, and
+            # HLS needs an ffmpeg that Android doesn't have. Failing here lets
+            # the download manager try another source instead of writing a
+            # snippet to disk under the full song's name.
+            return DownloadResult(
+                success=False,
+                error="No full progressive audio stream (HLS-only or preview-only)",
+            )
 
         native_abr = best_format.get("abr", 0) or 0
         native_ext = best_format.get("ext", "m4a")
