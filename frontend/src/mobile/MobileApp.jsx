@@ -17,7 +17,9 @@ import { LibraryTab } from './views/LibraryTab';
 import { SettingsTab } from './views/SettingsTab';
 import { CollectionSheet } from './views/CollectionSheet';
 import { TrackListSheet } from './views/TrackListSheet';
-import { reportPlayback, registerTransport, registerUpdateHandlers, checkForUpdate, isAndroid } from './androidBridge';
+import { reportPlayback, registerTransport, registerUpdateHandlers, checkForUpdate, isAndroid, getAppVersion } from './androidBridge';
+import { WhatsNewSheet } from './components/WhatsNewSheet';
+import { changelogFor } from './changelog';
 import { ArtistPickerSheet } from './components/ArtistPickerSheet';
 import { usePlayFrom } from './usePlayFrom';
 import { getBestArtworkUrl, splitArtists, sameTrack } from '../utils/tracks';
@@ -37,6 +39,22 @@ function Shell() {
   const [justReconnected, setJustReconnected] = useState(false);
   const [update, setUpdate] = useState(null);              // { version } when newer exists
   const [updateDismissed, setUpdateDismissed] = useState(false);
+  // "What's new" after an update: the version changed since we last recorded it.
+  // Decided at mount (lazy initializer, so we read localStorage once and never
+  // in an effect). A FRESH install shows nothing — there is nothing "new" to
+  // someone who never ran an older build; the effect below just records the
+  // version so the NEXT update has something to compare against.
+  const [whatsNew, setWhatsNew] = useState(() => {
+    if (!isAndroid()) return null;
+    const current = getAppVersion();
+    if (!current) return null;
+    const seen = localStorage.getItem('lastSeenVersion');
+    return seen && seen !== current ? changelogFor(current) : null;
+  });
+  useEffect(() => {
+    const current = isAndroid() ? getAppVersion() : '';
+    if (current) localStorage.setItem('lastSeenVersion', current);
+  }, []);
 
   // One silent update check at launch. Available → a dismissible popup; after
   // dismissing, the Settings gear keeps a green dot so it stays findable.
@@ -449,6 +467,8 @@ function Shell() {
           onClose={() => setArtistChoices(null)}
         />
       )}
+
+      <WhatsNewSheet entry={whatsNew} onClose={() => setWhatsNew(null)} />
 
       <Toaster />
     </div>

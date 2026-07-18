@@ -418,8 +418,10 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
               onClick={() => onAddToPlaylist?.(currentTrack)}
               className="tap p-2"
             >
-              <span className="flex h-[26px] w-[26px] items-center justify-center rounded-full border-2 border-white/70">
-                <Plus size={16} className="text-white/70" />
+              {/* 22px ring so the circled + reads the same visual size as the
+                  bare heart/download glyphs (size 22) beside it. */}
+              <span className="flex h-[22px] w-[22px] items-center justify-center rounded-full border-[1.5px] border-white/70">
+                <Plus size={13} className="text-white/70" />
               </span>
             </button>
             <button

@@ -119,6 +119,10 @@ class BackendService : Service() {
     private var trackArtist = ""
     private var isPlaying = false
     private var artwork: Bitmap? = null
+    // Last position/duration the WebView reported, so an optimistic state flip
+    // (below) can re-anchor the scrubber without waiting for the next report.
+    private var lastDurationMs = 0L
+    private var lastPositionMs = 0L
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -156,7 +160,7 @@ class BackendService : Service() {
     private val becomingNoisy = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
-                transportListener?.onCommand("pause")
+                dispatchTransport("pause")
             }
         }
     }
@@ -202,11 +206,9 @@ class BackendService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // Notification transport buttons come back in here as actions.
         when (intent?.action) {
-            ACTION_PLAY_PAUSE -> transportListener?.onCommand(
-                if (isPlaying) "pause" else "play"
-            )
-            ACTION_NEXT -> transportListener?.onCommand("next")
-            ACTION_PREV -> transportListener?.onCommand("previous")
+            ACTION_PLAY_PAUSE -> dispatchTransport(if (isPlaying) "pause" else "play")
+            ACTION_NEXT -> dispatchTransport("next")
+            ACTION_PREV -> dispatchTransport("previous")
         }
         // STICKY so Android restarts the service (and the backend) if it is ever
         // killed for memory while the user is still in the app.
@@ -341,17 +343,14 @@ class BackendService : Service() {
     private fun setupMediaSession() {
         mediaSession = MediaSessionCompat(this, "FixSpotify").apply {
             setCallback(object : MediaSessionCompat.Callback() {
-                override fun onPlay() = send("play")
-                override fun onPause() = send("pause")
-                override fun onSkipToNext() = send("next")
-                override fun onSkipToPrevious() = send("previous")
-                override fun onStop() = send("pause")
+                override fun onPlay() = dispatchTransport("play")
+                override fun onPause() = dispatchTransport("pause")
+                override fun onSkipToNext() = dispatchTransport("next")
+                override fun onSkipToPrevious() = dispatchTransport("previous")
+                override fun onStop() = dispatchTransport("pause")
                 override fun onSeekTo(pos: Long) {
+                    lastPositionMs = pos
                     transportListener?.onCommand("seek:$pos")
-                }
-
-                private fun send(action: String) {
-                    transportListener?.onCommand(action)
                 }
             })
             isActive = true
@@ -373,6 +372,8 @@ class BackendService : Service() {
         trackTitle = title.ifBlank { "Fix_Spotify" }
         trackArtist = artist
         isPlaying = playing
+        lastDurationMs = durationMs
+        lastPositionMs = positionMs
 
         // No audio-focus request here — Chromium already holds focus for the
         // <audio> element and a second claim from this process evicts it. See the
@@ -387,6 +388,24 @@ class BackendService : Service() {
                 .build()
         )
 
+        applyPlaybackState(playing, positionMs)
+
+        // Artwork is fetched off the main thread, then the notification is
+        // rebuilt so the cover appears on the lock screen.
+        if (!artworkUrl.isNullOrBlank()) {
+            thread(isDaemon = true) {
+                loadArtwork(artworkUrl)?.let {
+                    artwork = it
+                    notifyPlayback()
+                }
+            }
+        }
+        notifyPlayback()
+    }
+
+    /** Publish the media-session playback state. Speed is 0f while paused so OEM
+     *  lock screens stop the scrubber dead instead of creeping it forward. */
+    private fun applyPlaybackState(playing: Boolean, positionMs: Long) {
         mediaSession.setPlaybackState(
             PlaybackStateCompat.Builder()
                 .setActions(
@@ -401,26 +420,29 @@ class BackendService : Service() {
                     if (playing) PlaybackStateCompat.STATE_PLAYING
                     else PlaybackStateCompat.STATE_PAUSED,
                     positionMs,
-                    // Playback SPEED, and the lock screen extrapolates the
-                    // scrubber from (position + elapsed × speed). Paused MUST be
-                    // 0f, or some OEM lock screens keep the bar creeping forward
-                    // over a stopped song. 1f only while actually playing.
                     if (playing) 1.0f else 0.0f
                 )
                 .build()
         )
+    }
 
-        // Artwork is fetched off the main thread, then the notification is
-        // rebuilt so the cover appears on the lock screen.
-        if (!artworkUrl.isNullOrBlank()) {
-            thread(isDaemon = true) {
-                loadArtwork(artworkUrl)?.let {
-                    artwork = it
-                    notifyPlayback()
-                }
-            }
+    /**
+     * A transport command from a HARDWARE source — a Bluetooth button, a car
+     * head unit, the lock screen. Reflect the new state IMMEDIATELY, then let the
+     * WebView actually do it and confirm via updatePlayback().
+     *
+     * Without the optimistic flip, the earbud/car display only updates after the
+     * full native → JS → <audio> → native round trip (100–300ms), which reads as
+     * laggy — and worse, a stale state makes Android route the next
+     * PLAY_PAUSE keypress to the wrong handler ("press pause, nothing happens").
+     * The flip costs nothing: the next real report overwrites it a beat later.
+     */
+    private fun dispatchTransport(action: String) {
+        when (action) {
+            "play" -> { isPlaying = true; applyPlaybackState(true, lastPositionMs); notifyPlayback() }
+            "pause" -> { isPlaying = false; applyPlaybackState(false, lastPositionMs); notifyPlayback() }
         }
-        notifyPlayback()
+        transportListener?.onCommand(action)
     }
 
     private fun loadArtwork(url: String): Bitmap? = try {
