@@ -13,10 +13,36 @@ import {
 import { api } from '../../api';
 import { toast } from '../../utils/toast';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { CHANGELOG } from '../changelog';
 import {
   isAndroid, getAppVersion, checkForUpdate, installUpdate, registerUpdateHandlers,
   requestStorageAccess, pickDownloadFolder,
 } from '../androidBridge';
+
+// The handful of genuinely non-obvious things the app can do — the gestures a
+// user won't stumble on by themselves. Deliberately NOT the whole user guide:
+// a short, scannable list gets glanced at; a manual gets closed. `icon` names a
+// lucide export, resolved by name like the EQ presets.
+const TIPS = [
+  { icon: 'ArrowLeftRight', title: 'Swipe to change song',
+    body: 'Swipe the mini-player left or right to jump to the next or previous track.' },
+  { icon: 'MousePointerClick', title: 'Double-tap to seek',
+    body: 'In the full player, double-tap the left or right edge of the artwork to jump 10 seconds back or forward. Keep tapping to go further.' },
+  { icon: 'Link', title: 'Import from Spotify',
+    body: 'Paste a Spotify playlist or song link into the search bar to bring it into Fix Spotify.' },
+  { icon: 'Hand', title: 'Long-press your library',
+    body: 'Press and hold a playlist or album to pin, rename or delete it.' },
+  { icon: 'ListPlus', title: 'Swipe a song to queue it',
+    body: 'Swipe any song row to the right to add it to your queue.' },
+  { icon: 'ArrowDownToLine', title: 'Listen offline',
+    body: 'Download a song — or a whole playlist — to play it with no connection.' },
+  { icon: 'SlidersVertical', title: 'Shape your sound',
+    body: 'Open the equalizer in Settings and try a preset, or dial in your own curve.' },
+  { icon: 'Pin', title: 'Pin your favourites',
+    body: 'Pin up to five playlists or albums to keep them at the top of your library.' },
+  { icon: 'Mic2', title: 'Lyrics that follow along',
+    body: 'Open a song and tap Lyrics — synced lyrics scroll with the music.' },
+];
 
 const QUALITIES = [
   { value: 0, label: 'Auto', hint: 'Adjusts automatically based on source' },
@@ -219,6 +245,32 @@ export function SettingsTab({ onClose }) {
     );
   }
 
+  if (panel === 'tips') {
+    return (
+      <Panel title="Tips & shortcuts" onBack={() => setPanel(null)}>
+        <div className="px-4 py-2">
+          {TIPS.map((t) => {
+            const Icon = LucideIcons[t.icon] || LucideIcons.Sparkles;
+            return (
+              <div key={t.title} className="flex items-start gap-3.5 py-3.5 border-b border-white/[0.06]">
+                <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/[0.06]">
+                  <Icon size={17} className="text-spotify-essential-bright-accent" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[15px] font-semibold">{t.title}</p>
+                  <p className="mt-0.5 text-[12.5px] leading-snug text-spotify-text-subdued">{t.body}</p>
+                </div>
+              </div>
+            );
+          })}
+          <p className="px-1 py-4 text-[12px] text-spotify-text-subdued">
+            That&apos;s the app in a nutshell — the rest you&apos;ll find as you go.
+          </p>
+        </div>
+      </Panel>
+    );
+  }
+
   return (
     <div className="flex flex-col h-full bg-spotify-base">
       <div className="pt-safe shrink-0">
@@ -277,6 +329,12 @@ export function SettingsTab({ onClose }) {
         <SourcesSection />
 
         <StorageSection />
+
+        {/* Learn + stay current, grouped near the bottom where help-type items
+            conventionally live. */}
+        <Section title="Learn the app" subtitle="Gestures and shortcuts you might have missed">
+          <PanelRow label="Tips & shortcuts" onClick={() => setPanel('tips')} />
+        </Section>
 
         <UpdateSection />
 
@@ -795,6 +853,36 @@ function UpdateSection() {
               />
             </div>
           )}
+        </div>
+      </div>
+
+      {/* What's new — the full history, newest first. A permanent record of what
+          each version changed, not a dismissible notice; it's the same data the
+          post-update popup shows. The installed version is marked so you can see
+          at a glance what you're actually running. */}
+      <div className="mt-5">
+        <p className="text-[13px] font-bold text-spotify-text-subdued mb-2">What&apos;s new</p>
+        <div className="space-y-3">
+          {CHANGELOG.map((entry) => (
+            <div key={entry.version} className="rounded-xl bg-white/[0.035] p-3.5">
+              <div className="flex items-center gap-2">
+                <span className="text-[14px] font-extrabold tracking-tight">Version {entry.version}</span>
+                {entry.version === version && (
+                  <span className="rounded-full bg-spotify-essential-bright-accent/15 px-2 py-0.5 text-[10px] font-bold text-spotify-essential-bright-accent">
+                    Installed
+                  </span>
+                )}
+              </div>
+              <ul className="mt-2 space-y-1.5">
+                {entry.highlights.map((line) => (
+                  <li key={line} className="flex items-start gap-2 text-[12.5px] leading-snug text-white/85">
+                    <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-spotify-text-subdued" />
+                    <span>{line}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
         </div>
       </div>
     </Section>

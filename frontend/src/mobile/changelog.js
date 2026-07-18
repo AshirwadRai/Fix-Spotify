@@ -10,12 +10,14 @@
 
 export const CHANGELOG = [
   {
-    version: '1.3.8',
+    version: '1.4.2',
     highlights: [
       'Some SoundCloud songs that played silently now play correctly.',
-      'Lock-screen and Bluetooth controls respond instantly and stay in sync.',
+      'Lock-screen and Bluetooth controls respond instantly and stay in sync — even after the app has been idle for a while.',
       'Pinned playlists and albums now sit together at the very top of your library.',
       'Songs start faster, with less delay before the music begins.',
+      'New: Tips & shortcuts, and this update history, live in Settings.',
+      'A cleaner startup screen and in-app dialogs.',
     ],
   },
   {
