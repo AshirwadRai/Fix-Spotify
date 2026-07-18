@@ -121,6 +121,16 @@ class MainActivity : AppCompatActivity() {
             textZoom = 100                        // ignore the system font-size setting
         }
 
+        // Keep the renderer IMPORTANT even while the activity is in the
+        // background. By default Chromium drops a hidden WebView's renderer
+        // priority, so after a long idle the OS freezes (or reclaims) the
+        // process — and the first lock-screen/Bluetooth press then does nothing
+        // until you reopen the app: exactly the "controls feel sticky / like a
+        // lost connection after a while" report. `waivedWhenNotVisible = false`
+        // is what tells Android NOT to demote us when we're not on screen, which
+        // is correct for a background music player kept alive by the service.
+        webView.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false)
+
         // A bare WebChromeClient makes <input type="file"> a no-op: the WebView
         // has no way to open a picker on its own, so the tap silently does
         // nothing. Forwarding it to the system picker is what lets the user
@@ -153,6 +163,23 @@ class MainActivity : AppCompatActivity() {
                 splash.animate().alpha(0f).setDuration(250).withEndAction {
                     splash.visibility = View.GONE
                 }.start()
+            }
+
+            // If the OS DID kill our renderer (long idle under memory pressure),
+            // the WebView is dead and every evaluateJavascript is silently lost —
+            // the transport controls would stay dead until a manual relaunch.
+            // Rebuild the page instead of letting the app crash. Playback already
+            // stopped when the renderer died, so a reload is the honest recovery.
+            override fun onRenderProcessGone(
+                view: WebView?,
+                detail: android.webkit.RenderProcessGoneDetail?,
+            ): Boolean {
+                Log.w("FixSpotify", "WebView renderer gone — reloading")
+                pageLoaded = false
+                splash.alpha = 1f
+                splash.visibility = View.VISIBLE
+                waitForBackendThenLoad()
+                return true   // handled; do not tear down the process
             }
         }
 

@@ -12,11 +12,11 @@
     <!-- Covers the WebView until React paints. Booting CPython takes a few
          seconds on first launch, and a blank white rectangle reads as a crash.
 
-         The icon and the name, centred, and nothing else. The spinner and the
-         "starting the music engine" line were narrating our own startup at the
-         user — they don't care that there's a Python backend, and a progress
-         indicator with no progress to report only makes the wait feel longer.
-         A still, confident logo reads as fast; a spinner reads as stuck. -->
+         Just the logo, centred and large — no wordmark, no spinner, no
+         "starting the music engine" line. The user doesn't care that there's a
+         Python backend, and a progress indicator with no progress to report
+         only makes the wait feel longer. A still, confident logo reads as fast;
+         a spinner reads as stuck. -->
     <LinearLayout
         android:id="@+id/splash"
         android:layout_width="match_parent"
@@ -26,19 +26,9 @@
         android:orientation="vertical">
 
         <ImageView
-            android:layout_width="112dp"
-            android:layout_height="112dp"
+            android:layout_width="176dp"
+            android:layout_height="176dp"
             android:src="@mipmap/ic_launcher"
             android:contentDescription="@string/app_name" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
-            android:letterSpacing="0.01"
-            android:text="@string/splash_title"
-            android:textColor="#FFFFFF"
-            android:textSize="21sp"
-            android:textStyle="bold" />
     </LinearLayout>
 </FrameLayout>

@@ -11,6 +11,7 @@ import { useOfflineTracks } from '../../utils/downloads';
 import { sameTrack, getBestArtworkUrl } from '../../utils/tracks';
 import { useDominantColor } from '../../utils/useDominantColor';
 import { toast } from '../../utils/toast';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 
 /**
  * Full-screen list for a purely LOCAL collection — Liked Songs, a user playlist,
@@ -58,6 +59,7 @@ export function TrackListSheet({ view, onClose, onMenu }) {
   const [name, setName] = useState(view?.title || '');
   const [cover, setCover] = useState(view?.image || null);
   const [flagMenu, setFlagMenu] = useState(false);   // ⚑ → edit / delete
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   // ── Live tracks, NOT the caller's snapshot ──────────────────────────────
   // `view.tracks` is frozen at the moment the row was tapped, so anything that
@@ -193,14 +195,7 @@ export function TrackListSheet({ view, onClose, onMenu }) {
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  setFlagMenu(false);
-                  // Deleting a playlist is unrecoverable — confirm first.
-                  if (!window.confirm(`Delete “${view.title}”? This can't be undone.`)) return;
-                  deletePlaylist(view.id);
-                  toast(`Deleted “${view.title}”`);
-                  onClose();
-                }}
+                onClick={() => { setFlagMenu(false); setConfirmDelete(true); }}
                 className="tap flex w-full items-center gap-3 px-4 py-3 text-left text-[14px] text-spotify-essential-negative active:bg-white/10"
               >
                 <Trash2 size={17} /> Delete playlist
@@ -362,6 +357,22 @@ export function TrackListSheet({ view, onClose, onMenu }) {
 
         <div className="h-6" />
       </div>
+
+      {confirmDelete && (
+        <ConfirmDialog
+          title={`Delete “${view.title}”?`}
+          message="This can't be undone."
+          confirmLabel="Delete"
+          danger
+          onCancel={() => setConfirmDelete(false)}
+          onConfirm={() => {
+            deletePlaylist(view.id);
+            setConfirmDelete(false);
+            toast(`Deleted “${view.title}”`);
+            onClose();
+          }}
+        />
+      )}
     </div>
   );
 }

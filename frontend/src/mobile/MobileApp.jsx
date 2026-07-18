@@ -49,7 +49,14 @@ function Shell() {
     const current = getAppVersion();
     if (!current) return null;
     const seen = localStorage.getItem('lastSeenVersion');
-    return seen && seen !== current ? changelogFor(current) : null;
+    if (seen) return seen !== current ? changelogFor(current) : null;
+    // No lastSeenVersion recorded. That's a genuine fresh install (show
+    // nothing) UNLESS the phone already holds a library — in which case this is
+    // someone upgrading FROM a build that predated this feature, and they should
+    // see what changed. Any of these keys means "used before".
+    const usedBefore = ['likedSongs', 'savedCollections', 'playlists', 'offlineTracks']
+      .some((k) => localStorage.getItem(k));
+    return usedBefore ? changelogFor(current) : null;
   });
   useEffect(() => {
     const current = isAndroid() ? getAppVersion() : '';

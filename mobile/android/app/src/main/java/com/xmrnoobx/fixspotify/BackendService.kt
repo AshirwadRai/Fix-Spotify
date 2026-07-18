@@ -406,6 +406,9 @@ class BackendService : Service() {
     /** Publish the media-session playback state. Speed is 0f while paused so OEM
      *  lock screens stop the scrubber dead instead of creeping it forward. */
     private fun applyPlaybackState(playing: Boolean, positionMs: Long) {
+        // Revive the session if the OS deactivated it while we were idle — an
+        // inactive session shows no lock-screen controls at all.
+        if (!mediaSession.isActive) mediaSession.isActive = true
         mediaSession.setPlaybackState(
             PlaybackStateCompat.Builder()
                 .setActions(

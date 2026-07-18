@@ -7,6 +7,7 @@ import { useOfflineTracks } from '../../utils/downloads';
 import { usePlaylists, createPlaylist, renamePlaylist, deletePlaylist } from '../usePlaylists';
 import { PlaylistCover } from '../../components/PlaylistCover';
 import { cleanText, sameTrack } from '../../utils/tracks';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { usePlayer } from '../../store/PlayerContext';
 import { toast } from '../../utils/toast';
 
@@ -44,19 +45,12 @@ export function LibraryTab({ onOpenList, onOpenCollection }) {
   // The row whose long-press menu is open: { id, title, playlistId? }.
   const [menu, setMenu] = useState(null);
   const [renaming, setRenaming] = useState(null);   // { playlistId, title }
+  const [deleting, setDeleting] = useState(null);    // { playlistId, title }
 
   const pin = useCallback((id) => {
     const res = togglePin(id);
     if (res === 'full') toast(`You can pin up to ${MAX_PINS} — unpin one first`);
     else if (res === 'pinned') toast('Pinned to the top');
-    setMenu(null);
-  }, []);
-
-  const removePlaylist = useCallback((playlistId, title) => {
-    // Deleting a playlist is not undoable — always ask first.
-    if (!window.confirm(`Delete “${title}”? This can't be undone.`)) return;
-    deletePlaylist(playlistId);
-    toast('Playlist deleted');
     setMenu(null);
   }, []);
 
@@ -281,7 +275,7 @@ export function LibraryTab({ onOpenList, onOpenCollection }) {
             setRenaming({ playlistId: menu.playlistId, title: menu.title });
             setMenu(null);
           }}
-          onDelete={() => removePlaylist(menu.playlistId, menu.title)}
+          onDelete={() => { setDeleting({ playlistId: menu.playlistId, title: menu.title }); setMenu(null); }}
           onClose={() => setMenu(null)}
         />
       )}
@@ -295,6 +289,21 @@ export function LibraryTab({ onOpenList, onOpenCollection }) {
             toast('Playlist renamed');
           }}
           onClose={() => setRenaming(null)}
+        />
+      )}
+
+      {deleting && (
+        <ConfirmDialog
+          title={`Delete “${deleting.title}”?`}
+          message="This can't be undone."
+          confirmLabel="Delete"
+          danger
+          onCancel={() => setDeleting(null)}
+          onConfirm={() => {
+            deletePlaylist(deleting.playlistId);
+            setDeleting(null);
+            toast('Playlist deleted');
+          }}
         />
       )}
     </div>

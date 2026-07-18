@@ -12,6 +12,7 @@ import {
 } from '../../utils/eq';
 import { api } from '../../api';
 import { toast } from '../../utils/toast';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import {
   isAndroid, getAppVersion, checkForUpdate, installUpdate, registerUpdateHandlers,
   requestStorageAccess, pickDownloadFolder,
@@ -153,6 +154,7 @@ export function SettingsTab({ onClose }) {
   const settings = useAppSettings();
   // Which dedicated panel is open, if any. null = the settings list itself.
   const [panel, setPanel] = useState(null);
+  const [confirmReset, setConfirmReset] = useState(false);
 
   const qualityLabel = QUALITIES.find((q) => Number(settings.audioQuality) === q.value)?.label;
   const crossfadeLabel = Number(settings.crossfadeDuration) > 0
@@ -278,23 +280,19 @@ export function SettingsTab({ onClose }) {
 
         <UpdateSection />
 
-        <section className="px-4 py-6">
+        {/* Reset is an ordinary settings row, not an alarming red button — it's
+            reversible-in-spirit (it only restores defaults) and confirmed
+            before it runs. */}
+        <section className="px-4 py-5 border-t border-white/[0.07]">
           <button
             type="button"
-            onClick={() => {
-              // Resetting is destructive-ish — always confirm first.
-              if (!window.confirm('Reset all settings to their defaults?')) return;
-              writeAppSettings({ ...DEFAULT_SETTINGS });
-              toast('Settings reset to defaults');
-            }}
-            className="tap flex items-center gap-2.5 text-left"
+            onClick={() => setConfirmReset(true)}
+            className="tap flex w-full items-center gap-3 text-left"
           >
-            <RotateCcw size={18} className="text-spotify-essential-negative" />
-            <span>
-              <span className="block text-[15px] font-semibold text-spotify-essential-negative">
-                Reset all settings
-              </span>
-              <span className="block text-[12px] text-spotify-text-subdued">
+            <RotateCcw size={19} className="shrink-0 text-spotify-text-subdued" />
+            <span className="flex-1">
+              <span className="block text-[15px] text-white">Reset all settings</span>
+              <span className="block text-[12px] text-spotify-text-subdued mt-0.5">
                 Puts everything back to defaults
               </span>
             </span>
@@ -302,6 +300,20 @@ export function SettingsTab({ onClose }) {
         </section>
 
         <div className="h-6" />
+
+        {confirmReset && (
+          <ConfirmDialog
+            title="Reset all settings?"
+            message="Sound quality, equalizer, crossfade and the rest go back to their defaults. Your library isn't touched."
+            confirmLabel="Reset"
+            onCancel={() => setConfirmReset(false)}
+            onConfirm={() => {
+              writeAppSettings({ ...DEFAULT_SETTINGS });
+              setConfirmReset(false);
+              toast('Settings reset to defaults');
+            }}
+          />
+        )}
       </div>
     </div>
   );
