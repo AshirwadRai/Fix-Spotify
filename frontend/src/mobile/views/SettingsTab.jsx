@@ -271,6 +271,14 @@ export function SettingsTab({ onClose }) {
     );
   }
 
+  if (panel === 'changelog') {
+    return (
+      <Panel title="What's new" onBack={() => setPanel(null)}>
+        <ChangelogPanel installed={getAppVersion()} />
+      </Panel>
+    );
+  }
+
   return (
     <div className="flex flex-col h-full bg-spotify-base">
       <div className="pt-safe shrink-0">
@@ -330,26 +338,32 @@ export function SettingsTab({ onClose }) {
 
         <StorageSection />
 
-        {/* Learn + stay current, grouped near the bottom where help-type items
-            conventionally live. */}
-        <Section title="Learn the app" subtitle="Gestures and shortcuts you might have missed">
+        {/* About & help — learn the app and keep it current, grouped near the
+            bottom where help-type items conventionally live. */}
+        <Section title="About & help" inset>
           <PanelRow label="Tips & shortcuts" onClick={() => setPanel('tips')} />
+          <PanelRow
+            label="What's new"
+            value={getAppVersion() ? `v${getAppVersion()}` : null}
+            onClick={() => setPanel('changelog')}
+          />
         </Section>
 
         <UpdateSection />
 
-        {/* Reset is an ordinary settings row, not an alarming red button — it's
-            reversible-in-spirit (it only restores defaults) and confirmed
-            before it runs. */}
+        {/* Reset is styled red — it's the one destructive control on the screen,
+            and the colour is the signal. Still confirmed before it runs. */}
         <section className="px-4 py-5 border-t border-white/[0.07]">
           <button
             type="button"
             onClick={() => setConfirmReset(true)}
             className="tap flex w-full items-center gap-3 text-left"
           >
-            <RotateCcw size={19} className="shrink-0 text-spotify-text-subdued" />
+            <RotateCcw size={19} className="shrink-0 text-spotify-essential-negative" />
             <span className="flex-1">
-              <span className="block text-[15px] text-white">Reset all settings</span>
+              <span className="block text-[15px] font-semibold text-spotify-essential-negative">
+                Reset all settings
+              </span>
               <span className="block text-[12px] text-spotify-text-subdued mt-0.5">
                 Puts everything back to defaults
               </span>
@@ -761,6 +775,53 @@ function YouTubeExperimentalToggle() {
   );
 }
 
+/**
+ * The full changelog history, collapsed. One tappable row per version so the
+ * screen isn't a wall of bullet points; tapping a version expands its notes.
+ * The installed version is marked and starts expanded so "what changed in the
+ * one I'm running" is visible without a tap.
+ */
+function ChangelogPanel({ installed }) {
+  const [open, setOpen] = useState(() => installed || CHANGELOG[0]?.version || null);
+  return (
+    <div className="px-4 py-2">
+      {CHANGELOG.map((entry) => {
+        const expanded = open === entry.version;
+        return (
+          <div key={entry.version} className="border-b border-white/[0.06]">
+            <button
+              type="button"
+              onClick={() => setOpen(expanded ? null : entry.version)}
+              className="tap flex w-full items-center gap-3 py-3.5 text-left"
+            >
+              <span className="flex-1 text-[15px] font-semibold">Version {entry.version}</span>
+              {entry.version === installed && (
+                <span className="rounded-full bg-spotify-essential-bright-accent/15 px-2 py-0.5 text-[10px] font-bold text-spotify-essential-bright-accent">
+                  Installed
+                </span>
+              )}
+              <ChevronRight
+                size={18}
+                className={`text-spotify-text-subdued transition-transform duration-fast ${expanded ? 'rotate-90' : ''}`}
+              />
+            </button>
+            {expanded && (
+              <ul className="space-y-1.5 pb-4 pl-1">
+                {entry.highlights.map((line) => (
+                  <li key={line} className="flex items-start gap-2 text-[12.5px] leading-snug text-white/85">
+                    <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-spotify-text-subdued" />
+                    <span>{line}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function UpdateSection() {
   const [state, setState] = useState('idle');   // idle | checking | current | found | downloading | failed
   const [info, setInfo] = useState(null);
@@ -853,36 +914,6 @@ function UpdateSection() {
               />
             </div>
           )}
-        </div>
-      </div>
-
-      {/* What's new — the full history, newest first. A permanent record of what
-          each version changed, not a dismissible notice; it's the same data the
-          post-update popup shows. The installed version is marked so you can see
-          at a glance what you're actually running. */}
-      <div className="mt-5">
-        <p className="text-[13px] font-bold text-spotify-text-subdued mb-2">What&apos;s new</p>
-        <div className="space-y-3">
-          {CHANGELOG.map((entry) => (
-            <div key={entry.version} className="rounded-xl bg-white/[0.035] p-3.5">
-              <div className="flex items-center gap-2">
-                <span className="text-[14px] font-extrabold tracking-tight">Version {entry.version}</span>
-                {entry.version === version && (
-                  <span className="rounded-full bg-spotify-essential-bright-accent/15 px-2 py-0.5 text-[10px] font-bold text-spotify-essential-bright-accent">
-                    Installed
-                  </span>
-                )}
-              </div>
-              <ul className="mt-2 space-y-1.5">
-                {entry.highlights.map((line) => (
-                  <li key={line} className="flex items-start gap-2 text-[12.5px] leading-snug text-white/85">
-                    <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-spotify-text-subdued" />
-                    <span>{line}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
         </div>
       </div>
     </Section>

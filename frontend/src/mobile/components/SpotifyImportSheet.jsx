@@ -72,11 +72,13 @@ export function SpotifyImportSheet({ url, onClose, onMenu }) {
         </div>
 
         <div className="px-4 pb-4 flex flex-col items-center">
-          <div className="w-36 h-36 rounded-md overflow-hidden shadow-2xl bg-black/30">
-            {data?.image ? (
+          {/* The cover only appears once we have one — an empty grey square while
+              loading read as a broken image. */}
+          {data?.image && (
+            <div className="w-36 h-36 rounded-md overflow-hidden shadow-2xl">
               <img src={data.image} alt="" className="w-full h-full object-cover" />
-            ) : null}
-          </div>
+            </div>
+          )}
           <h1 className="text-xl font-bold text-center mt-4 line-clamp-2">
             {loading ? 'Importing from Spotify…' : cleanText(data?.name) || 'Spotify playlist'}
           </h1>
@@ -92,7 +94,7 @@ export function SpotifyImportSheet({ url, onClose, onMenu }) {
         <div className="flex-1 flex flex-col items-center justify-center gap-3 px-10">
           <Loader2 size={28} className="animate-spin text-spotify-essential-bright-accent" />
           <p className="text-sm text-spotify-text-subdued text-center">
-            Finding each song on JioSaavn and SoundCloud. This can take a moment for
+            Finding each song across your music sources. This can take a moment for
             a long playlist.
           </p>
         </div>

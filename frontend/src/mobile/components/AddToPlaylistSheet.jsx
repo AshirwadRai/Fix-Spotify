@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Plus, Music2 } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { usePlaylists, createPlaylist, addTrackToPlaylist } from '../usePlaylists';
+import { PlaylistCover } from '../../components/PlaylistCover';
 import { cleanText, getBestArtworkUrl } from '../../utils/tracks';
 import { toast } from '../../utils/toast';
 
@@ -107,8 +108,10 @@ export function AddToPlaylistSheet({ track, onClose }) {
               onClick={() => add(p)}
               className="w-full flex items-center gap-4 px-5 py-3 text-left active:bg-white/5"
             >
-              <span className="w-11 h-11 rounded bg-spotify-highlight flex items-center justify-center shrink-0">
-                <Music2 size={20} className="text-spotify-text-subdued" />
+              {/* The playlist's own cover mosaic (same as the library), built
+                  from artwork the tracks already carry — no extra fetch. */}
+              <span className="w-11 h-11 rounded overflow-hidden shrink-0">
+                <PlaylistCover tracks={p.tracks || []} image={p.image} size={44} />
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block text-[15px] truncate">{p.name}</span>
