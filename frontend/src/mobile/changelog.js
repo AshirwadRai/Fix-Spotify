@@ -12,12 +12,13 @@ export const CHANGELOG = [
   {
     version: '1.4.2',
     highlights: [
+      'Importing from Spotify now shows live progress and keeps going in the background — leave the screen and come back without losing your place.',
+      'Lock-screen and Bluetooth controls respond instantly and stay in sync, even after the app has been idle a while.',
       'Some SoundCloud songs that played silently now play correctly.',
-      'Lock-screen and Bluetooth controls respond instantly and stay in sync — even after the app has been idle for a while.',
-      'Pinned playlists and albums now sit together at the very top of your library.',
-      'Songs start faster, with less delay before the music begins.',
-      'New: Tips & shortcuts, and this update history, live in Settings.',
-      'A cleaner startup screen and in-app dialogs.',
+      'Pinned playlists and albums sit together at the top of your library.',
+      'Real artist photos when a song has several artists, and playlist covers when adding a song.',
+      'New in Settings: Tips & shortcuts, and a tidy version history under What’s new.',
+      'Songs start faster, with a cleaner startup screen and in-app dialogs.',
     ],
   },
   {
