@@ -42,7 +42,7 @@ import sys
 import threading
 import time
 import urllib.parse
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, is_dataclass, replace
 from html import unescape
 from pathlib import Path
@@ -1424,47 +1424,103 @@ def _match_track(item: Dict[str, str]) -> Optional[Dict[str, Any]]:
     return None
 
 
+# ─── Spotify import as a background job ───────────────────────────────────────
+# Matching a long playlist takes a while (a real search per track). Running it in
+# a thread keyed by URL means the work CONTINUES even if the user leaves the
+# import screen — the WebView can unmount and come back and pick up exact
+# progress, because the job lives here in the server process, not in the page.
+#
+# The client polls /api/spotify/import for a snapshot; the first call starts the
+# job. Desktop passes wait=1 to block for the finished result (its old one-shot
+# behaviour, unchanged).
+_import_jobs: Dict[str, Dict[str, Any]] = {}
+_import_lock = threading.Lock()
+_IMPORT_JOBS_MAX = 8
+
+
+def _import_snapshot(job: Dict[str, Any]) -> Dict[str, Any]:
+    with _import_lock:
+        return {
+            "name": job["name"], "image": job["image"],
+            "total": job["total"], "done": job["done"], "matched": job["matched"],
+            "tracks": job["tracks"], "missing": job["missing"],
+            "finished": job["finished"], "error": job["error"],
+        }
+
+
+def _run_import(kind: str, sid: str, job: Dict[str, Any]) -> None:
+    try:
+        meta = _spotify_tracklist(kind, sid)
+    except Exception as e:
+        with _import_lock:
+            job["error"] = f"Could not read that playlist: {e}"
+            job["finished"] = True
+        return
+    if not meta:
+        with _import_lock:
+            job["error"] = "Could not read that playlist — is it public?"
+            job["finished"] = True
+        return
+
+    items = meta["tracks"][:100]   # cap the work: a real search per track
+    with _import_lock:
+        job["name"] = meta["name"]
+        job["image"] = meta.get("image", "")
+        job["total"] = len(items)
+
+    matched: List[Optional[Dict[str, Any]]] = [None] * len(items)
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        fut_to_i = {ex.submit(_match_track, it): i for i, it in enumerate(items)}
+        for fut in as_completed(fut_to_i):
+            i = fut_to_i[fut]
+            try:
+                matched[i] = fut.result()
+            except Exception:
+                matched[i] = None
+            with _import_lock:
+                job["done"] += 1
+
+    with _import_lock:
+        job["tracks"] = [t for t in matched if t]          # original order preserved
+        job["missing"] = [f"{items[i]['title']} — {items[i]['artist']}"
+                          for i, t in enumerate(matched) if not t]
+        job["matched"] = len(job["tracks"])
+        job["finished"] = True
+
+
 @app.get("/api/spotify/import")
 def spotify_import():
     """Resolve a public Spotify playlist/album URL into playable tracks.
 
-    Each Spotify track is matched to JioSaavn/SoundCloud by title+artist. Songs
-    with no match are reported in `missing` rather than silently dropped, so the
-    user knows what didn't come across.
+    Runs as a background job so progress survives the user leaving the screen.
+    Returns a snapshot; the first call starts the job. `wait=1` blocks for the
+    finished result (desktop's original one-shot behaviour).
     """
     url = _arg("url")
     kind, sid = parse_spotify_url(url)
     if not kind:
         return jsonify({"error": "Not a Spotify playlist or album link"}), 400
 
-    try:
-        meta = _spotify_tracklist(kind, sid)
-    except Exception as e:
-        return jsonify({"error": f"Could not read that playlist: {e}"}), 502
-    if not meta:
-        return jsonify({"error": "Could not read that playlist — is it public?"}), 502
+    with _import_lock:
+        job = _import_jobs.get(url)
+        # Start a fresh job if none exists, or if the last attempt failed (retry).
+        if job is None or (job["finished"] and job["error"]):
+            job = {"name": "", "image": "", "total": 0, "done": 0, "matched": 0,
+                   "tracks": [], "missing": [], "finished": False, "error": None}
+            _import_jobs[url] = job
+            # Evict oldest finished jobs so the dict can't grow without bound.
+            if len(_import_jobs) > _IMPORT_JOBS_MAX:
+                for k in [k for k, v in list(_import_jobs.items())
+                          if v["finished"] and k != url][: len(_import_jobs) - _IMPORT_JOBS_MAX]:
+                    _import_jobs.pop(k, None)
+            threading.Thread(target=_run_import, args=(kind, sid, job), daemon=True).start()
 
-    # Cap the work: matching runs a real search per track.
-    items = meta["tracks"][:100]
+    if _arg("wait"):
+        deadline = time.monotonic() + 120
+        while not _import_snapshot(job)["finished"] and time.monotonic() < deadline:
+            time.sleep(0.2)
 
-    # Matching is network-bound, so fan out. Order is preserved by executor.map.
-    with ThreadPoolExecutor(max_workers=6) as ex:
-        matched = list(ex.map(_match_track, items))
-
-    tracks = [t for t in matched if t]
-    missing = [
-        f"{i['title']} — {i['artist']}"
-        for i, t in zip(items, matched) if not t
-    ]
-
-    return jsonify({
-        "name": meta["name"],
-        "image": meta.get("image", ""),
-        "tracks": tracks,
-        "missing": missing,
-        "total": len(items),
-        "matched": len(tracks),
-    })
+    return jsonify(_import_snapshot(job))
 
 
 @app.get("/api/sources/status")

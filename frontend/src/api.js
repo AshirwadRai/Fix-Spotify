@@ -580,12 +580,30 @@ class ApiClient {
    */
   async importSpotify(url) {
     try {
-      const r = await fetch(apiUrl(`/spotify/import?url=${encodeURIComponent(url || '')}`));
+      // wait=1: block for the finished result (desktop's one-shot flow). Harmless
+      // on the desktop backend, which ignores the param and blocks natively.
+      const r = await fetch(apiUrl(`/spotify/import?url=${encodeURIComponent(url || '')}&wait=1`));
       const data = await r.json();
       if (!r.ok) return { error: data?.error || 'Import failed', tracks: [] };
       return data;
     } catch (e) {
       return { error: String(e), tracks: [] };
+    }
+  }
+
+  /**
+   * A progress SNAPSHOT of a running import (mobile). The first call starts the
+   * background job; subsequent calls report { total, done, tracks, missing,
+   * finished, error }. Poll until finished. Never throws.
+   */
+  async importSpotifyStatus(url) {
+    try {
+      const r = await fetch(apiUrl(`/spotify/import?url=${encodeURIComponent(url || '')}`));
+      const data = await r.json();
+      if (!r.ok) return { error: data?.error || 'Import failed', tracks: [], finished: true };
+      return data;
+    } catch (e) {
+      return { error: String(e), tracks: [], finished: true };
     }
   }
 

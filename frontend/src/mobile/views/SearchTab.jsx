@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { Search, X, Clock, TrendingUp } from 'lucide-react';
+import { Search, X, Clock, TrendingUp, Loader2 } from 'lucide-react';
 import { api } from '../../api';
 import { TrackItem, CardItem } from '../components/TrackItem';
 import { normalizeTracks, applyEnrichment, cleanText } from '../../utils/tracks';
@@ -7,6 +7,7 @@ import { useRecentSearches, addRecentSearch, removeRecentSearch } from '../../ut
 import { usePlayer } from '../../store/PlayerContext';
 import { usePlayFrom } from '../usePlayFrom';
 import { isSpotifyUrl } from '../components/SpotifyImportSheet';
+import { useSpotifyImport } from '../spotifyImport';
 import { toast } from '../../utils/toast';
 
 export function SearchTab({ onMenu, onOpenArtist, onOpenAlbum, onImportSpotify }) {
@@ -198,6 +199,10 @@ export function SearchTab({ onMenu, onOpenArtist, onOpenAlbum, onImportSpotify }
       </div>
 
       <div className="scroll-y pb-bars flex-1">
+        {/* An import running in the background — tap to jump back into it with
+            live progress, instead of re-pasting the link. */}
+        <ImportResumeBanner onOpen={onImportSpotify} />
+
         {/* Recent searches — shown until the first search of the session */}
         {!searched && (
           <div className="px-4 pt-2">
@@ -312,5 +317,32 @@ export function SearchTab({ onMenu, onOpenArtist, onOpenAlbum, onImportSpotify }
         <div className="h-6" />
       </div>
     </div>
+  );
+}
+
+/** A slim banner when a Spotify import is still running in the background. */
+function ImportResumeBanner({ onOpen }) {
+  const imp = useSpotifyImport();
+  if (!imp.url || imp.finished || imp.error) return null;
+  const pct = imp.total > 0 ? Math.round((imp.done / imp.total) * 100) : 0;
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(imp.url)}
+      className="tap mx-4 mt-2 mb-1 flex w-[calc(100%-2rem)] items-center gap-3 rounded-xl bg-white/[0.06] px-3.5 py-3 text-left active:bg-white/10"
+    >
+      <Loader2 size={18} className="shrink-0 animate-spin text-spotify-essential-bright-accent" />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[13.5px] font-semibold">
+          Importing{imp.name ? ` “${cleanText(imp.name)}”` : ' from Spotify'}…
+        </span>
+        <span className="block text-[11.5px] text-spotify-text-subdued tabular-nums">
+          {imp.total > 0 ? `${imp.done} of ${imp.total} songs` : 'Reading the playlist…'}
+        </span>
+      </span>
+      <span className="shrink-0 text-[12px] font-bold tabular-nums text-spotify-essential-bright-accent">
+        {imp.total > 0 ? `${pct}%` : ''}
+      </span>
+    </button>
   );
 }

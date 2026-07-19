@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
-import { ChevronLeft, Play, Plus, Loader2, AlertCircle, Check } from 'lucide-react';
-import { api } from '../../api';
+import { ChevronLeft, Play, Plus, AlertCircle, Check } from 'lucide-react';
 import { usePlayer } from '../../store/PlayerContext';
 import { TrackItem } from './TrackItem';
 import { normalizeTracks, cleanText } from '../../utils/tracks';
 import { usePlayFrom } from '../usePlayFrom';
 import { createPlaylist, addTrackToPlaylist } from '../usePlaylists';
+import { startImport, clearImport, useSpotifyImport } from '../spotifyImport';
 import { toast } from '../../utils/toast';
 
 /** True for a public Spotify playlist/album link (or spotify: URI). */
@@ -26,39 +26,36 @@ export function isSpotifyUrl(text) {
  * (add/remove songs) like any other.
  */
 export function SpotifyImportSheet({ url, onClose, onMenu }) {
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [saved, setSaved] = useState(false);
+  // Track the URL that was saved rather than a bare boolean, so "saved" resets
+  // by itself when a different playlist is opened — no effect, no lint noise.
+  const [savedUrl, setSavedUrl] = useState(null);
+  const saved = savedUrl === url;
 
   const { currentTrack, isPlaying, playCollection } = usePlayer();
   const playFrom = usePlayFrom();
 
-  useEffect(() => {
-    if (!url) return undefined;
-    let cancelled = false;
-    setLoading(true);
-    setData(null);
-    setSaved(false);
-
-    api.importSpotify(url).then((res) => {
-      if (!cancelled) setData(res);
-    }).finally(() => {
-      if (!cancelled) setLoading(false);
-    });
-
-    return () => { cancelled = true; };
-  }, [url]);
+  // Progress lives in a module-level store, so leaving this screen doesn't stop
+  // the import — the backend job keeps matching and this picks up exact progress
+  // when the screen comes back. Starting is idempotent for the same URL.
+  const data = useSpotifyImport();
+  useEffect(() => { if (url) startImport(url); }, [url]);
 
   if (!url) return null;
 
-  const tracks = normalizeTracks(data?.tracks || []);
-  const missing = data?.missing || [];
+  // The store may briefly hold a previous URL's snapshot for one frame after the
+  // URL changes; treat a mismatch as "still loading this one".
+  const active = data.url === url ? data : { finished: false, done: 0, total: 0, tracks: [], missing: [] };
+  const loading = !active.finished && !active.error;
+  const tracks = normalizeTracks(active.tracks || []);
+  const missing = active.missing || [];
+  const pct = active.total > 0 ? Math.round((active.done / active.total) * 100) : 0;
 
   const saveToLibrary = () => {
-    const pl = createPlaylist(data?.name || 'Spotify playlist');
+    const pl = createPlaylist(active.name || 'Spotify playlist');
     if (!pl) return;
     tracks.forEach((t) => addTrackToPlaylist(pl.id, t));
-    setSaved(true);
+    setSavedUrl(url);
+    clearImport();   // done with it — stop tracking so it doesn't resume later
     toast(`Saved “${pl.name}” to your library`);
   };
 
@@ -74,43 +71,58 @@ export function SpotifyImportSheet({ url, onClose, onMenu }) {
         <div className="px-4 pb-4 flex flex-col items-center">
           {/* The cover only appears once we have one — an empty grey square while
               loading read as a broken image. */}
-          {data?.image && (
+          {active.image && (
             <div className="w-36 h-36 rounded-md overflow-hidden shadow-2xl">
-              <img src={data.image} alt="" className="w-full h-full object-cover" />
+              <img src={active.image} alt="" className="w-full h-full object-cover" />
             </div>
           )}
           <h1 className="text-xl font-bold text-center mt-4 line-clamp-2">
-            {loading ? 'Importing from Spotify…' : cleanText(data?.name) || 'Spotify playlist'}
+            {loading ? (cleanText(active.name) || 'Importing from Spotify…') : cleanText(active.name) || 'Spotify playlist'}
           </h1>
-          {!loading && !data?.error && (
+          {!loading && !active.error && (
             <p className="text-[13px] text-spotify-text-subdued mt-1 text-center">
-              {data?.matched} of {data?.total} songs found
+              {active.matched} of {active.total} songs found
             </p>
           )}
         </div>
       </div>
 
       {loading && (
-        <div className="flex-1 flex flex-col items-center justify-center gap-3 px-10">
-          <Loader2 size={28} className="animate-spin text-spotify-essential-bright-accent" />
-          <p className="text-sm text-spotify-text-subdued text-center">
-            Finding each song across your music sources. This can take a moment for
-            a long playlist.
+        <div className="flex-1 flex flex-col items-center justify-center gap-4 px-10">
+          {/* A real progress bar — how many songs matched so far, out of the
+              total. Determinate once the tracklist is known; a slim indeterminate
+              feel before that (total 0). */}
+          <div className="w-full max-w-xs">
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+              <div
+                className="h-full rounded-full bg-spotify-essential-bright-accent transition-[width] duration-300"
+                style={{ width: `${active.total > 0 ? pct : 8}%` }}
+              />
+            </div>
+            <p className="mt-3 text-center text-[13px] font-semibold tabular-nums">
+              {active.total > 0
+                ? `${active.done} of ${active.total} songs`
+                : 'Reading the playlist…'}
+            </p>
+          </div>
+          <p className="text-xs text-spotify-text-subdued text-center">
+            Finding each song across your music sources. You can keep browsing —
+            this carries on in the background.
           </p>
         </div>
       )}
 
-      {!loading && data?.error && (
+      {!loading && active.error && (
         <div className="flex-1 flex flex-col items-center justify-center gap-3 px-10">
           <AlertCircle size={28} className="text-spotify-essential-negative" />
-          <p className="text-sm text-spotify-text-subdued text-center">{data.error}</p>
+          <p className="text-sm text-spotify-text-subdued text-center">{active.error}</p>
           <p className="text-xs text-spotify-essential-subdued text-center">
             The playlist has to be public for this to work.
           </p>
         </div>
       )}
 
-      {!loading && !data?.error && (
+      {!loading && !active.error && (
         <>
           <div className="shrink-0 flex items-center gap-3 px-4 pb-3">
             <button
