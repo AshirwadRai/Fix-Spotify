@@ -1,0 +1,71 @@
+/* Brand tokens.
+ *
+ * Keyed to the app icon that ships today. Everything visual on this site reads
+ * from --fs-accent / --fs-accent-2, so a future logo change is an edit to these
+ * two lines rather than a hunt through the stylesheet.
+ */
+:root {
+  --fs-accent: #1db954;
+  --fs-accent-2: #1ed760;
+  --fs-accent-deep: #14833b;
+
+  --vp-c-brand-1: #17a04a;
+  --vp-c-brand-2: #1db954;
+  --vp-c-brand-3: #1ed760;
+  --vp-c-brand-soft: rgba(29, 185, 84, 0.14);
+
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(
+    120deg,
+    var(--fs-accent-2) 0%,
+    var(--fs-accent) 55%,
+    var(--fs-accent-deep) 100%
+  );
+  --vp-home-hero-image-background-image: linear-gradient(
+    -45deg,
+    var(--fs-accent) 30%,
+    var(--fs-accent-2) 100%
+  );
+  --vp-home-hero-image-filter: blur(48px);
+}
+
+.dark {
+  /* The default brand green is tuned for light backgrounds; lift it on dark so
+   * links clear the WCAG AA contrast floor against the near-black page. */
+  --vp-c-brand-1: #2ee06b;
+  --vp-c-bg: #0d1117;
+  --vp-c-bg-alt: #12171f;
+}
+
+/* Mermaid diagrams in the architecture page are wide; let them scroll rather
+ * than forcing the page body to. */
+.vp-doc .mermaid {
+  overflow-x: auto;
+}
+
+/* ── Shared bits used by the custom components ───────────────────────────── */
+
+.fs-eq-bar {
+  transform-origin: center;
+  animation: fs-eq-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes fs-eq-pulse {
+  0%,
+  100% {
+    transform: scaleY(0.45);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+/* Anyone who has asked their OS to stop moving things gets a still page. This
+ * is not optional politeness — motion sickness is real and the site is a
+ * reference people read while troubleshooting. */
+@media (prefers-reduced-motion: reduce) {
+  .fs-eq-bar,
+  .fs-reel-track {
+    animation: none !important;
+  }
+}

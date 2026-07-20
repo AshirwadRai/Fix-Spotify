@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Check, RotateCcw, HardDrive, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
+import {
+  Check, RotateCcw, HardDrive, ChevronLeft, ChevronRight, RefreshCw, ExternalLink,
+} from 'lucide-react';
 // Namespace import: each preset names its own glyph (see utils/eq.js), so the
 // component resolves it by name rather than the file re-listing all twelve.
 import * as LucideIcons from 'lucide-react';
@@ -17,6 +19,15 @@ import {
   isAndroid, getAppVersion, checkForUpdate, installUpdate, registerUpdateHandlers,
   requestStorageAccess, pickDownloadFolder,
 } from '../androidBridge';
+
+// The hosted documentation. Kept separate from "Tips & shortcuts" on purpose:
+// tips are three-second gestures you read in place, the docs are a reference you
+// go to with a question. Folding one into the other makes the quick list slower
+// to scan without making the reference easier to find.
+//
+// NOTE: update this if the docs are published somewhere other than the canonical
+// repository's GitHub Pages site.
+const DOCS_URL = 'https://ashirwadrai.github.io/Fix-Spotify/';
 
 // The handful of genuinely non-obvious things the app can do — the gestures a
 // user won't stumble on by themselves. Deliberately NOT the whole user guide:
@@ -89,17 +100,21 @@ function Toggle({ label, hint, checked, onChange, disabled = false, dot = null }
       aria-checked={checked}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className="w-full flex items-center gap-3 py-3 text-left disabled:opacity-50"
+      className="w-full flex items-center gap-3 py-3 text-left"
     >
       {dot && <span className={`h-2 w-2 shrink-0 rounded-full ${dot}`} />}
       <div className="flex-1 min-w-0">
         <p className="text-[15px]">{label}</p>
         {hint && <p className="text-[12px] text-spotify-text-subdued mt-0.5 leading-snug">{hint}</p>}
       </div>
+      {/* Only the switch dims when the row is disabled. Fading the whole row
+          made JioSaavn and SoundCloud read as unavailable next to YouTube,
+          when in fact they're the two sources that are always on — the exact
+          opposite of what the dimming implied. */}
       <span
         className={`shrink-0 w-12 h-7 rounded-full p-0.5 transition-colors ${
           checked ? 'bg-spotify-essential-bright-accent' : 'bg-white/25'
-        }`}
+        } ${disabled ? 'opacity-50' : ''}`}
       >
         <span
           className={`block w-6 h-6 rounded-full bg-white transition-transform ${
@@ -133,6 +148,35 @@ function PanelRow({ label, value, onClick }) {
       )}
       <ChevronRight size={16} className="shrink-0 text-spotify-essential-subdued" />
     </button>
+  );
+}
+
+/**
+ * Same shape as PanelRow, but it leaves the app.
+ *
+ * A plain anchor is enough: MainActivity's shouldOverrideUrlLoading hands any
+ * non-localhost URL to the system browser, so this opens outside the WebView
+ * without a bridge call. The arrow differs from PanelRow's chevron on purpose —
+ * the row goes somewhere else, and it should say so before it's tapped.
+ */
+function LinkRow({ label, hint, href }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className="w-full flex items-center gap-3 py-3.5 text-left active:bg-white/5"
+    >
+      <span className="flex-1 min-w-0">
+        <span className="block text-[15px]">{label}</span>
+        {hint && (
+          <span className="mt-0.5 block text-[12px] leading-snug text-spotify-text-subdued">
+            {hint}
+          </span>
+        )}
+      </span>
+      <ExternalLink size={15} className="shrink-0 text-spotify-essential-subdued" />
+    </a>
   );
 }
 
@@ -333,6 +377,11 @@ export function SettingsTab({ onClose }) {
             conventionally live. */}
         <Section title="About & help" inset>
           <PanelRow label="Tips & shortcuts" onClick={() => setPanel('tips')} />
+          <LinkRow
+            label="Documentation"
+            hint="Full guide — every feature, setting and fix, in the browser"
+            href={DOCS_URL}
+          />
         </Section>
 
         <UpdateSection />
@@ -703,10 +752,6 @@ function SourcesSection() {
         />
       ))}
       <YouTubeExperimentalToggle />
-      <p className="py-3 text-[11.5px] leading-snug text-spotify-text-subdued">
-        Everything runs on your phone over your own connection — nothing is routed
-        through a server.
-      </p>
     </Section>
   );
 }

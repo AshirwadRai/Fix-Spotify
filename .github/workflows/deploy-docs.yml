@@ -1,0 +1,66 @@
+name: Deploy docs
+
+# The docs are a VitePress site: they need a build step, so GitHub Pages cannot
+# serve them straight from the docs/ folder. This builds them and publishes the
+# result to Pages instead.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - '.github/workflows/deploy-docs.yml'
+  # Lets you publish without waiting for a docs commit — Actions tab → Run workflow.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two deploys race; finish the running one, then take the newest.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # lastUpdated in the config reads git history for each page's date.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
+
+      - name: Install
+        working-directory: docs
+        run: npm ci
+
+      - name: Build
+        working-directory: docs
+        # A project site is served from /<repo>/, so every asset URL needs that
+        # prefix. Change this if the repository is ever renamed.
+        env:
+          DOCS_BASE: /Fix-Spotify/
+        run: npm run build
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/.vitepress/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
