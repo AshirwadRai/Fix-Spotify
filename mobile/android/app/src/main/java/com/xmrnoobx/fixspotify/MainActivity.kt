@@ -156,6 +156,33 @@ class MainActivity : AppCompatActivity() {
             }
         }
         webView.webViewClient = object : WebViewClient() {
+            /**
+             * The WebView may ONLY ever show our own loopback page.
+             *
+             * addJavascriptInterface exposes a bridge to whatever document is
+             * loaded — including getApiToken() (which unlocks the entire local
+             * API) and installUpdate() (which can trigger an APK install). If a
+             * link, redirect or injected iframe ever navigated this WebView to a
+             * third-party page, that page would inherit those methods. So
+             * anything that isn't 127.0.0.1 is handed to the system browser and
+             * refused here.
+             */
+            override fun shouldOverrideUrlLoading(
+                view: WebView?,
+                request: android.webkit.WebResourceRequest?,
+            ): Boolean {
+                val host = request?.url?.host
+                if (host == null || host == "127.0.0.1" || host == "localhost") return false
+                request.url?.let { uri ->
+                    try {
+                        startActivity(Intent(Intent.ACTION_VIEW, uri))
+                    } catch (e: Exception) {
+                        Log.w("FixSpotify", "no handler for external link", e)
+                    }
+                }
+                return true   // never load a foreign origin into this WebView
+            }
+
             override fun onPageFinished(view: WebView?, url: String?) {
                 if (pageLoaded) return
                 pageLoaded = true

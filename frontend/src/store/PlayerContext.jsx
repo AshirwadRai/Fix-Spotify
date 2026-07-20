@@ -21,12 +21,20 @@ function getAppSettings() {
 // the user left off (paused). Kept tiny and separate from Recently Played.
 const RESUME_KEY = 'resumeState';
 
-function saveResumeState(track, position) {
+// The UPCOMING queue is saved too, not just the current song. Without it,
+// reopening the app left you on the right track with nothing after it — so
+// swiping the mini-player forward (or pressing next) did nothing at all.
+// Capped because a queue topped up by radio grows without limit and this has to
+// stay a small localStorage write.
+const RESUME_QUEUE_MAX = 30;
+
+function saveResumeState(track, position, queue) {
   try {
     if (!track) return;
     localStorage.setItem(RESUME_KEY, JSON.stringify({
       track,
       position: Math.max(0, Math.floor(position || 0)),
+      queue: Array.isArray(queue) ? queue.slice(0, RESUME_QUEUE_MAX) : [],
       savedAt: Date.now(),
     }));
   } catch { /* storage full / unavailable — ignore */ }
@@ -214,7 +222,7 @@ export function PlayerProvider({ children }) {
       const now = Date.now();
       if (now - lastSaveRef.current > 5000 && currentTrackRef.current && audio.currentTime > 0) {
         lastSaveRef.current = now;
-        saveResumeState(currentTrackRef.current, audio.currentTime);
+        saveResumeState(currentTrackRef.current, audio.currentTime, queueRef.current);
       }
 
       // ─── Crossfade check ──────────────────────────────────────
@@ -404,7 +412,7 @@ export function PlayerProvider({ children }) {
       }
       // Pausing is a natural save point for the resume timestamp.
       if (currentTrackRef.current && audio.currentTime > 0) {
-        saveResumeState(currentTrackRef.current, audio.currentTime);
+        saveResumeState(currentTrackRef.current, audio.currentTime, queueRef.current);
       }
     };
     
@@ -1041,9 +1049,21 @@ export function PlayerProvider({ children }) {
     const s = readResumeState();
     if (s && s.track) {
       playTrackRef.current(s.track, { autoplay: false, resumeAt: s.position });
+      // Restore what was UP NEXT too. Without this the app reopened on the right
+      // song with an empty queue, so swiping the mini-player forward (or pressing
+      // next) did nothing until you played something new.
+      const restored = queueableTracks(s.queue || []);
+      if (restored.length) setQueue(restored);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Persist the queue as it changes, not only on the playback tick — otherwise
+  // queueing a few songs and immediately closing the app lost them.
+  useEffect(() => {
+    if (!currentTrackRef.current) return;
+    saveResumeState(currentTrackRef.current, audioRef.current?.currentTime || 0, queue);
+  }, [queue]);
 
   // Explicit, NON-toggling commands. Anything that knows which state it wants —
   // the OS media buttons, a headset unplug, an incoming call — must use these.

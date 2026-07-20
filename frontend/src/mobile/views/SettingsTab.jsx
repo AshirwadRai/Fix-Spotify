@@ -687,15 +687,20 @@ const ALWAYS_ON = [
 function SourcesSection() {
   return (
     <Section title="Sources" subtitle="Where your music is streamed from" inset>
+      {/* Core sources read as switches that are ON and can't be turned off,
+          rather than a text label — so the row is the same shape as YouTube's
+          below it instead of looking like a different kind of thing. The switch
+          is genuinely disabled: these two are what the app streams from. */}
       {ALWAYS_ON.map((s) => (
-        <div key={s.name} className="flex items-center gap-3 py-3">
-          <span className={`h-2 w-2 shrink-0 rounded-full ${s.dot}`} />
-          <div className="min-w-0 flex-1">
-            <p className="text-[14px]">{s.name}</p>
-            <p className="mt-0.5 text-[11.5px] leading-snug text-spotify-text-subdued">{s.hint}</p>
-          </div>
-          <span className="shrink-0 text-[12px] text-spotify-text-subdued">Always on</span>
-        </div>
+        <Toggle
+          key={s.name}
+          label={s.name}
+          hint={s.hint}
+          checked
+          disabled
+          dot={s.dot}
+          onChange={() => {}}
+        />
       ))}
       <YouTubeExperimentalToggle />
       <p className="py-3 text-[11.5px] leading-snug text-spotify-text-subdued">

@@ -215,6 +215,24 @@ class BackendService : Service() {
         return START_STICKY
     }
 
+    /**
+     * The user swiped the app away from Recents.
+     *
+     * If music is PLAYING we stay alive — that is the entire point of a media
+     * foreground service, and killing it would cut the song off. If nothing is
+     * playing there is nothing to keep alive, and the leftover notification is
+     * just litter on the lock screen, so shut the whole service down and take the
+     * notification with it. (stopSelf also defeats START_STICKY, so Android will
+     * not resurrect us.)
+     */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        if (!isPlaying) {
+            ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+            stopSelf()
+        }
+        super.onTaskRemoved(rootIntent)
+    }
+
     override fun onDestroy() {
         try {
             Python.getInstance().getModule("mobile_server").callAttr("stop_server")

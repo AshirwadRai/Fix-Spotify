@@ -1,7 +1,8 @@
-import { memo, useRef, useState } from 'react';
-import { MoreVertical, Check, ListPlus } from 'lucide-react';
+import { memo, useRef, useState, useEffect } from 'react';
+import { MoreVertical, Check, ListPlus, Heart } from 'lucide-react';
 import { getBestArtworkUrl, cleanText, sameTrack } from '../../utils/tracks';
 import { isDownloaded } from '../../utils/downloads';
+import { isLiked, toggleLiked } from '../../utils/likes';
 import { usePlayer } from '../../store/PlayerContext';
 import { toast } from '../../utils/toast';
 import { SourceBadge } from './SourceBadge';
@@ -24,6 +25,17 @@ function TrackItemBase({
   const active = currentTrack && sameTrack(track, currentTrack);
   const artwork = getBestArtworkUrl(track);
   const downloaded = isDownloaded(track);
+
+  // Liking straight from the row — no need to play the song or open the ⋮ menu
+  // first. Follows the SHARED store, so a heart toggled here, on the player, or
+  // anywhere else stays in sync everywhere.
+  const [liked, setLiked] = useState(() => isLiked(track));
+  useEffect(() => {
+    const sync = () => setLiked(isLiked(track));
+    sync();
+    window.addEventListener('likedchange', sync);
+    return () => window.removeEventListener('likedchange', sync);
+  }, [track]);
 
   const [dx, setDx] = useState(0);          // live horizontal drag offset (≤ 0)
   const start = useRef(null);               // {x, y} or null
@@ -138,6 +150,24 @@ function TrackItemBase({
             <SourceBadge track={track} className="shrink-0" />
           </p>
         </div>
+
+        <button
+          type="button"
+          aria-label={liked ? 'Remove from Liked Songs' : 'Add to Liked Songs'}
+          aria-pressed={liked}
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleLiked(track);
+            setLiked((v) => !v);
+          }}
+          className="p-2 shrink-0"
+        >
+          <Heart
+            size={17}
+            className={liked ? 'text-spotify-essential-bright-accent' : 'text-spotify-text-subdued'}
+            fill={liked ? 'currentColor' : 'none'}
+          />
+        </button>
 
         <button
           type="button"
