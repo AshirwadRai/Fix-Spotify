@@ -49,7 +49,12 @@ jobs:
           DOCS_BASE: /Fix-Spotify/
         run: npm run build
 
+      # enablement turns Pages on if it isn't already, instead of failing with
+      # "Get Pages site failed / Not Found". Without it the very first run on a
+      # repo always fails until someone flips the switch in Settings by hand.
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
 
       - uses: actions/upload-pages-artifact@v3
         with:
