@@ -1,0 +1,381 @@
+@import "tailwindcss";
+
+/* Same design tokens as the desktop build (src/index.css) so every shared
+   component keeps its colours. */
+@theme {
+  --color-spotify-black: #000000;
+  --color-spotify-base: #121212;
+  --color-spotify-elevated-base: #242424;
+  --color-spotify-highlight: #1a1a1a;
+  --color-spotify-press: #000000;
+  --color-spotify-elevated-highlight: #2a2a2a;
+  --color-spotify-elevated-press: #161616;
+  --color-spotify-text-base: #ffffff;
+  --color-spotify-text-subdued: #a7a7a7;
+  --color-spotify-essential-subdued: #727272;
+  --color-spotify-essential-bright-accent: #1ed760;
+  --color-spotify-essential-positive: #1ed760;
+  --color-spotify-essential-warning: #ffa42b;
+  --color-spotify-essential-negative: #e91429;
+  --color-spotify-background-tinted-base: rgba(255, 255, 255, 0.07);
+  --color-spotify-background-tinted-highlight: rgba(255, 255, 255, 0.1);
+
+  /* ── Motion ──────────────────────────────────────────────────────────────
+     Three durations, two curves. Everything that moves picks from these, so the
+     app has one rhythm instead of each component inventing its own.
+
+     The curves matter more than the numbers: ease-out-soft decelerates into
+     rest, which is what makes a sheet feel like it settled rather than stopped.
+     Reserve ease-spring (it overshoots) for things that should feel physical —
+     a sheet arriving, not a colour changing. */
+  --motion-fast: 140ms;   /* taps, colour + opacity changes */
+  --motion-base: 240ms;   /* sheets, overlays, tab switches */
+  --motion-slow: 380ms;   /* artwork, hero collapse */
+
+  --ease-soft: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.28, 0.64, 1);
+
+  --animate-fade-in: fade-in var(--motion-base) var(--ease-soft);
+  --animate-slide-up: slide-up var(--motion-base) var(--ease-spring);
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes slide-up {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
+/* ── Bottom sheets ───────────────────────────────────────────────────────────
+   Every action sheet (song ⋮, long-press menu, add-to-playlist, artist picker)
+   opens with the SAME motion, so the app has one gesture instead of each sheet
+   popping in differently. The panel rises from the bottom while the scrim fades;
+   the ease decelerates into rest so it reads as "settled", not "stopped".
+
+   ~300ms is deliberately a touch slower than a tap — a sheet is a context change,
+   and rushing it is what made the menus feel like they snapped onto the screen
+   rather than arriving. */
+.sheet-scrim {
+  animation: fade-in 260ms var(--ease-soft);
+}
+.sheet-panel {
+  animation: sheet-rise 300ms var(--ease-soft);
+  transform-origin: bottom center;
+  will-change: transform;
+}
+@keyframes sheet-rise {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
+/* A centred dialog (rename, create playlist) grows in place rather than rising —
+   it isn't anchored to an edge, so a rise would look like it fell from nowhere. */
+.dialog-pop {
+  animation: dialog-pop 220ms var(--ease-spring);
+}
+@keyframes dialog-pop {
+  from { opacity: 0; transform: scale(0.94); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* Dropdown menus (⋮ / flag menus in Now Playing, track lists, etc.) descend from
+   their trigger with a soft scale + fade, like Spotify's context menus. 280ms is
+   slightly longer than a tap so the menu reads as "appearing" not "popping". The
+   transform-origin top-right keeps it anchored to its trigger button. */
+.dropdown-reveal {
+  animation: dropdown-reveal 280ms var(--ease-soft);
+  transform-origin: top right;
+}
+@keyframes dropdown-reveal {
+  from { opacity: 0; transform: scale(0.9) translateY(-6px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet-scrim, .sheet-panel, .dialog-pop, .dropdown-reveal { animation: none; }
+}
+
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Mini-player title marquee — ONE direction, like Spotify: hold, glide the
+   overflow left into view, hold at the end, then reset and repeat. Never
+   scrolls backwards. Distance = the element's own overflow (--marquee-shift). */
+@keyframes marquee-scroll {
+  0%, 14%     { transform: translateX(0); }
+  64%, 86%    { transform: translateX(var(--marquee-shift, 0)); }
+  86.01%, 100% { transform: translateX(0); }
+}
+.marquee-run {
+  animation: marquee-scroll 10s linear infinite;
+}
+
+/* Double-tap seek arrows light up one after another (per-arrow delay in JSX). */
+@keyframes peekPulse {
+  0%, 100% { opacity: 0.25; }
+  35%      { opacity: 1; }
+}
+.peek-arrow {
+  animation: peekPulse 500ms ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .marquee-run { animation: none; }
+}
+
+/* Named durations/curves as utilities, so JSX reads `duration-base ease-soft`
+   instead of hardcoding milliseconds. */
+@utility duration-fast { transition-duration: var(--motion-fast); }
+@utility duration-base { transition-duration: var(--motion-base); }
+@utility duration-slow { transition-duration: var(--motion-slow); }
+@utility ease-soft    { transition-timing-function: var(--ease-soft); }
+@utility ease-spring  { transition-timing-function: var(--ease-spring); }
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+    /* The DOCUMENT itself must never scroll or rubber-band — only the .scroll-y
+       panes inside it do. This is the real fix for "the bottom bar shifts down on
+       a hard fling": the bars are absolutely positioned inside the app shell, so
+       they can only move if the shell moves, and the shell moves only if the
+       document overscrolls. overscroll-behavior alone wasn't enough — Chromium's
+       root scroller is <html>, not <body>, and without overflow:hidden a hard
+       fling still bounces the page. Locking all three kills it at the source. */
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  html {
+    /* 87.5% of the 16px default = a 14px root. Every rem-based size (Tailwind's
+       text-sm/base/lg, gaps, padding) scales down with it for a tighter, more
+       "native" mobile feel, without touching each component. Dropped from 15px
+       to shrink the overall type a notch — the app read a touch large. */
+    font-size: 87.5%;
+  }
+
+  body {
+    @apply bg-spotify-black text-spotify-text-base antialiased;
+    /* Roboto ships with Android; no webfont fetch, so first paint never waits
+       on the network (the phone is frequently offline). */
+    font-family: Roboto, -apple-system, "Segoe UI", system-ui, sans-serif;
+
+    /* An app, not a page: no rubber-band scroll, no long-press text selection,
+       no blue tap flash. These are the three things that most give a WebView
+       away as "a website in a box". */
+    overscroll-behavior: none;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+
+  /* Lyrics are the one thing worth being able to select/copy. */
+  .selectable {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+}
+
+/* ── Safe areas ──────────────────────────────────────────────────────────────
+   The manifest lets the app draw edge to edge (viewport-fit=cover), so content
+   would otherwise slide under the notch and the gesture bar. */
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.h-safe-bottom {
+  height: env(safe-area-inset-bottom, 0px);
+}
+
+/* Momentum scrolling inside the tab panes. `overscroll-behavior: none` (not just
+   `contain`) so a fling that reaches the end of a pane stops dead instead of
+   handing a bounce back to the now-locked document. */
+.scroll-y {
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: none;
+}
+
+/* Horizontal card rails on Home. */
+.rail {
+  display: flex;
+  gap: 0.75rem;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.rail::-webkit-scrollbar {
+  display: none;
+}
+.rail > * {
+  scroll-snap-align: start;
+  flex: 0 0 auto;
+}
+
+/* Hide scrollbars everywhere — a touch UI has no use for them. */
+::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+/* ── Now-playing sheet ───────────────────────────────────────────────────────
+   Slides up over the tab content instead of being a separate route, so the
+   mini-player → full-player transition feels continuous. */
+.sheet {
+  transition: transform 320ms cubic-bezier(0.32, 0.72, 0, 1);
+  will-change: transform;
+}
+.sheet-open {
+  transform: translateY(0);
+}
+.sheet-closed {
+  transform: translateY(100%);
+}
+
+/* Native-feeling press feedback: no hover states on touch, so scale instead.
+   The press is instant but the RELEASE eases back — that asymmetry is what
+   reads as responsive rather than sluggish. */
+.tap {
+  transition: transform var(--motion-base) var(--ease-spring),
+              opacity var(--motion-base) var(--ease-soft);
+}
+.tap:active {
+  transition-duration: var(--motion-fast);
+  transform: scale(0.96);
+  opacity: 0.75;
+}
+
+/* Vestibular safety, and it also keeps the app usable when the OS is set to
+   minimise motion — animations collapse to near-instant rather than vanishing,
+   so nothing appears without explanation. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+}
+
+/* The seek/volume sliders. */
+.slider {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  height: 24px;
+}
+/* The played part is white, the rest stays grey. Chromium has no ::-*-progress
+   pseudo, so the fill is a hard-stop gradient driven by --pct, which the
+   component sets from value/max. */
+.slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(
+    to right,
+    #fff 0 var(--pct, 0%),
+    rgba(255, 255, 255, 0.25) var(--pct, 0%) 100%
+  );
+}
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: #fff;
+}
+
+/* Clearance for the mini-player + bottom nav, which FLOAT over the scrolling
+   content (that's what gives the nav a real backdrop to frost). Every scroll
+   region inside <main> needs it, or its last row sits under the glass.
+
+   Reserved unconditionally, including when the mini-player is hidden: making it
+   conditional would reflow every list the moment playback starts, and a little
+   dead space at the bottom of a list is a far smaller sin than a row you cannot
+   reach. env() covers the gesture bar on top of that. */
+.pb-bars {
+  padding-bottom: calc(128px + env(safe-area-inset-bottom, 0px));
+}
+
+/* The equalizer's vertical bands.
+   `writing-mode: vertical-lr` (set inline) is what stands the range on end —
+   the browser's own rotation, so the thumb still tracks the finger correctly
+   and the OS keeps its accessibility semantics. Rotating with a transform
+   would leave the hit area lying on its side. Only the track needs re-sizing:
+   in vertical mode the runnable track's `height` becomes its length, so width
+   is what makes it a thin column. */
+.slider-v {
+  height: 104px;
+  width: 20px;
+}
+.slider-v::-webkit-slider-runnable-track {
+  width: 4px;
+  height: 100%;
+  border-radius: 2px;
+  /* An EQ band runs from −dB to +dB with 0 in the middle — "filled up to here"
+     would be a lie, so it opts out of .slider's played-part gradient. */
+  background: rgba(255, 255, 255, 0.25);
+}
+.slider-v::-webkit-slider-thumb {
+  margin-top: 0;
+  margin-left: -5px;
+}
+
+/* Marquee for long titles in the mini-player. */
+@keyframes marquee {
+  0%,
+  15% {
+    transform: translateX(0);
+  }
+  85%,
+  100% {
+    transform: translateX(var(--marquee-shift, -50%));
+  }
+}
+.marquee {
+  animation: marquee 12s ease-in-out infinite alternate;
+}
+
+/* Equalizer bars shown on the currently-playing row. */
+@keyframes eq {
+  0%,
+  100% {
+    height: 20%;
+  }
+  50% {
+    height: 100%;
+  }
+}
+.eq-bar {
+  width: 2px;
+  background: var(--color-spotify-essential-bright-accent);
+  animation: eq 0.9s ease-in-out infinite;
+}
+
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* <input type="search"> renders a native "clear" (×) button in the WebView.
+   We draw our own X, so hide the native one — otherwise the search bar shows
+   TWO clear icons. */
+input[type="search"]::-webkit-search-cancel-button,
+input[type="search"]::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+  display: none;
+}

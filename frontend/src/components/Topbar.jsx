@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { Search, X, Loader2, ChevronLeft, ChevronRight, Home } from 'lucide-react';
 import { cleanText } from '../utils/tracks';
 import { api } from '../api';
+import { toggleSaved, isSaved } from '../utils/collections';
+import { toast } from '../utils/toast';
 import { WindowControls } from './WindowControls';
 
 export function Topbar({ onSearch, activeView, onNavigate, resetToken, canGoBack, canGoForward, onBack, onForward }) {
@@ -100,6 +102,33 @@ export function Topbar({ onSearch, activeView, onNavigate, resetToken, canGoBack
     }
   };
 
+  // A pasted Spotify playlist/album link is an IMPORT, not a text search —
+  // resolve it to playable tracks, save it to the library, and open Library.
+  const importSpotify = async (url) => {
+    toast('Importing from Spotify…');
+    try {
+      const res = await api.importSpotify(url);
+      if (res?.error || !res?.tracks?.length) {
+        toast(res?.error || 'Could not import that Spotify link');
+        return;
+      }
+      if (!isSaved({ url })) {
+        toggleSaved({
+          type: 'jsplaylist',
+          name: res.name,
+          image: res.image,
+          url,
+          subtitle: `${res.matched} songs`,
+          tracks: res.tracks,
+        });
+      }
+      toast(`Imported “${res.name}” — ${res.matched} of ${res.total} songs`);
+      onNavigate?.('library');
+    } catch {
+      toast('Could not import that Spotify link');
+    }
+  };
+
   // Centralized search trigger — used by Enter, suggestion click, and the button
   const doSearch = (q) => {
     const term = (q ?? query).trim();
@@ -109,6 +138,24 @@ export function Topbar({ onSearch, activeView, onNavigate, resetToken, canGoBack
     setShowDropdown(false);
     setSuggestions([]);
     inputRef.current?.blur();
+    if (/open\.spotify\.com\/(intl-[a-z]+\/)?(playlist|album)\//.test(term) || /^spotify:(playlist|album):/.test(term)) {
+      setQuery('');
+      importSpotify(term);
+      return;
+    }
+    // A single TRACK link: resolve it to "title artist" and run a normal
+    // search — pasting a song link used to text-search the raw URL and return
+    // garbage results named after the URL itself.
+    if (/open\.spotify\.com\/(intl-[a-z]+\/)?track\//.test(term) || /^spotify:track:/.test(term)) {
+      toast('Looking that song up…');
+      api.importSpotify(term).then((res) => {
+        const t = res?.tracks?.[0];
+        const q = t ? `${t.title} ${t.artist}` : res?.name;
+        if (q) { setQuery(q); onSearch(q); }
+        else toast('Could not read that Spotify link');
+      }).catch(() => toast('Could not read that Spotify link'));
+      return;
+    }
     onSearch(term);
   };
 

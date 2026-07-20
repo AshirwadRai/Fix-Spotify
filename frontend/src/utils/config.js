@@ -18,9 +18,27 @@ export function getApiBase() {
   return _apiBase;
 }
 
-/** Build a full API URL. apiUrl('/lyrics?x=1') -> `${base}/api/lyrics?x=1`. */
+// Android only. The on-device server gates /api/* on a per-launch token, because
+// its loopback port is reachable by every other app on the phone. Empty on
+// desktop and in dev, where the guard is off.
+let _apiToken = '';
+
+export function setApiToken(token) {
+  _apiToken = token || '';
+}
+
+/**
+ * Build a full API URL. apiUrl('/lyrics?x=1') -> `${base}/api/lyrics?x=1`.
+ *
+ * The token goes in the QUERY STRING, not a header, because this same function
+ * builds <audio src="/api/proxy_stream?..."> — and an audio element cannot send
+ * headers. Appending it here, in the one place every URL is built, is what stops
+ * a call site from forgetting it and getting a silent 403.
+ */
 export function apiUrl(path) {
-  return `${_apiBase}/api${path}`;
+  const url = `${_apiBase}/api${path}`;
+  if (!_apiToken) return url;
+  return `${url}${url.includes('?') ? '&' : '?'}_t=${encodeURIComponent(_apiToken)}`;
 }
 
 /**

@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000">
+
+    <WebView
+        android:id="@+id/webview"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- Covers the WebView until React paints. Booting CPython takes a few
+         seconds on first launch, and a blank white rectangle reads as a crash.
+
+         Just the logo, centred and large — no wordmark, no spinner, no
+         "starting the music engine" line. The user doesn't care that there's a
+         Python backend, and a progress indicator with no progress to report
+         only makes the wait feel longer. A still, confident logo reads as fast;
+         a spinner reads as stuck. -->
+    <LinearLayout
+        android:id="@+id/splash"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#121212"
+        android:gravity="center"
+        android:orientation="vertical">
+
+        <ImageView
+            android:layout_width="176dp"
+            android:layout_height="176dp"
+            android:src="@mipmap/ic_launcher"
+            android:contentDescription="@string/app_name" />
+    </LinearLayout>
+</FrameLayout>

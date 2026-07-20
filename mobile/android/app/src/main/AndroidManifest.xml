@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Keeps the Python server + audio alive when the app is backgrounded.
+         Without this, Android freezes the process and playback dies the moment
+         the user switches apps. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+
+    <!-- The foreground-service notification. Required from Android 13 (API 33). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- In-app updates: download the new APK and hand it to the system
+         installer. The user still confirms; we never install silently. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <!-- Downloads land in Downloads/Fix_Spotify/music so they are visible in any
+         file manager and SURVIVE an uninstall. On Android 11+ writing a real
+         file path there is only possible with All-files access; the tagger and
+         yt-dlp both need a real path, so there is no lighter permission that
+         works. It is requested LAZILY (never at launch) and only when the user
+         actually chooses a public folder — deny it and the app silently falls
+         back to its private directory rather than failing downloads.
+
+         maxSdkVersion=28 on WRITE_EXTERNAL_STORAGE: on API <=28 that older,
+         narrower permission is sufficient, so we never ask for the broad one
+         on those devices. -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+    <uses-permission
+        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
+
+    <application
+        android:name=".FixSpotifyApp"
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.FixSpotify"
+        android:hardwareAccelerated="true"
+        android:usesCleartextTraffic="true"
+        android:networkSecurityConfig="@xml/network_security_config">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|keyboardHidden|uiMode|smallestScreenSize|screenLayout">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <service
+            android:name=".BackendService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
+
+
+        <!-- The installer needs a content:// URI for the downloaded APK; a
+             file:// URI throws FileUriExposedException on API 24+. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+    </application>
+</manifest>

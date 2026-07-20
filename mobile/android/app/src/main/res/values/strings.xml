@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Fix_Spotify</string>
+
+    <!-- The splash wordmark. Deliberately NOT app_name: that one is the package
+         label and is load-bearing elsewhere (launcher, notification title, the
+         Fix_Spotify downloads folder), so the underscore has to stay there. On a
+         splash screen it just looks like a filename. -->
+    <string name="splash_title">Fix Spotify</string>
+</resources>

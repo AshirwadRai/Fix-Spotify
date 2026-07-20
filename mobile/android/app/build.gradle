@@ -1,0 +1,265 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+    id 'com.chaquo.python'
+}
+
+// Repo root (…/Fix-Spotify). rootDir here is …/Fix-Spotify/mobile/android.
+def repoRoot = file("$rootDir/../..")
+def pythonSrc = file("src/main/python")
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Version — DERIVED FROM THE RELEASE TAG, never hand-edited.
+// ─────────────────────────────────────────────────────────────────────────────
+// CI passes -PappVersionName=<tag without 'v'> (see build-android.yml). The
+// versionName the APK reports is THAT value, so the tag and the installed
+// version can never disagree — which is exactly the bug that caused an endless
+// "update to 1.2.2" loop (the tag said 1.2.2 but build.gradle still said 1.2.1).
+//
+// versionCode is computed from the name as major*10000 + minor*100 + patch, so
+// it always increases with the version (1.2.1 -> 10201, 1.2.2 -> 10202). Android
+// requires a strictly higher versionCode to install an update in place.
+//
+// The fallback is only for LOCAL builds (no -P passed); releases always override.
+def appVersionName = (project.findProperty('appVersionName') ?: '1.2.1').toString().trim()
+def appVersionCode = {
+    def m = (appVersionName =~ /(\d+)\.(\d+)\.(\d+)/)
+    if (m.find()) {
+        return m.group(1).toInteger() * 10000 + m.group(2).toInteger() * 100 + m.group(3).toInteger()
+    }
+    return 1   // unparseable name (local dev) — a harmless floor
+}()
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Release signing
+// ─────────────────────────────────────────────────────────────────────────────
+// Android identifies an app by (applicationId + SIGNING KEY). Install an APK
+// signed with a DIFFERENT key and Android refuses to treat it as an update — the
+// user must uninstall first, which WIPES their playlists, likes and history.
+//
+// So the release key must be stable and long-lived. It is deliberately NOT in
+// git: whoever holds it can publish an "update" that phones will trust.
+//   • locally  -> app/fixspotify-release.jks + app/keystore.properties (gitignored)
+//   • in CI    -> the ANDROID_KEYSTORE_B64 / ANDROID_KEYSTORE_PASSWORD secrets
+//
+// Without either, we fall back to the debug key so a fresh clone still builds —
+// but such an APK can't update a properly-signed install.
+def keystorePropsFile = rootProject.file('app/keystore.properties')
+def hasKeystore = keystorePropsFile.exists()
+def keystoreProps = new Properties()
+if (hasKeystore) {
+    keystorePropsFile.withInputStream { keystoreProps.load(it) }
+}
+
+android {
+    namespace 'com.xmrnoobx.fixspotify'
+    compileSdk 34
+
+    signingConfigs {
+        if (hasKeystore) {
+            release {
+                storeFile rootProject.file("app/${keystoreProps['storeFile']}")
+                storePassword keystoreProps['storePassword']
+                keyAlias keystoreProps['keyAlias']
+                keyPassword keystoreProps['keyPassword']
+            }
+        }
+    }
+
+    defaultConfig {
+        applicationId "com.xmrnoobx.fixspotify"
+        // 26 = notification channels + foreground services, which the backend
+        // service relies on to survive being backgrounded during playback.
+        minSdk 26
+        targetSdk 34
+        versionCode appVersionCode
+        versionName appVersionName
+
+        ndk {
+            // Chaquopy ships a native CPython per ABI, and each one adds ~10 MB
+            // to the APK. arm64 covers every phone made in the last decade;
+            // x86_64 is here only so the app runs in the Android emulator.
+            // Drop x86_64 to roughly halve the APK for a real-device release.
+            abiFilters 'arm64-v8a', 'x86_64'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false          // Chaquopy + WebView JS bridge dislike R8 defaults
+            shrinkResources false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'),
+                          'proguard-rules.pro'
+            // Real key when available (so this APK can UPDATE an installed one
+            // in place, keeping user data); debug key otherwise, so a fresh
+            // clone still builds without secrets.
+            signingConfig hasKeystore ? signingConfigs.release : signingConfigs.debug
+        }
+        debug {
+            applicationIdSuffix ".debug"
+        }
+    }
+
+    buildFeatures {
+        // AGP 8 stopped generating BuildConfig unless asked. MainActivity reads
+        // BuildConfig.DEBUG to enable WebView remote debugging (chrome://inspect)
+        // in debug builds only.
+        buildConfig true
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions { jvmTarget = '17' }
+
+    packagingOptions {
+        // Several transitive Python deps ship duplicate metadata.
+        resources.excludes += ['META-INF/DEPENDENCIES', 'META-INF/LICENSE*', 'META-INF/NOTICE*']
+    }
+}
+
+chaquopy {
+    defaultConfig {
+        version = "3.11"
+
+        pip {
+            // EVERY package here must be pure Python — Chaquopy can only install
+            // a native wheel if it has been built for Android specifically.
+            //
+            // Deliberately ABSENT (and why):
+            //   fastapi/uvicorn/pydantic — pydantic-core is a Rust extension.
+            //                              Flask replaces them.
+            //   rapidfuzz               — C++ extension. components/ already
+            //                              falls back to difflib when it is
+            //                              missing, so nothing to change.
+            //   ffmpeg-python           — no ffmpeg binary on Android.
+            //   browser-cookie3         — reads DESKTOP browser cookie stores.
+            //   yt-dlp-ejs              — YouTube JS challenge solver; needs Deno.
+            install "flask==3.0.3"
+            install "requests>=2.31.0"
+            install "mutagen==1.47.0"
+
+            // yt-dlp is pure Python and is what SoundCloud extraction runs on.
+            // It does NOT do YouTube here: that needs a JS runtime Android has
+            // no Deno for. YouTube goes through NewPipeExtractor instead
+            // (YouTubeNP.kt), so yt-dlp-ejs — the JS-challenge solver bundle —
+            // is no longer installed.
+            install "yt-dlp>=2026.7.4"
+        }
+
+        // Skipping .pyc precompilation keeps build times sane; first import is
+        // marginally slower, which the warm-up thread already hides.
+        pyc { src = false }
+    }
+
+    sourceSets {
+        getByName("main") {
+            srcDir "src/main/python"
+        }
+    }
+}
+
+dependencies {
+    implementation 'androidx.core:core-ktx:1.13.1'
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'androidx.activity:activity-ktx:1.9.1'
+    // MediaSessionCompat -> the lock-screen / notification transport controls
+    // that navigator.mediaSession in the WebView drives.
+    implementation 'androidx.media:media:1.7.0'
+    // YouTube on Android = NewPipeExtractor (the engine behind the NewPipe app).
+    //
+    // Three attempts to make yt-dlp work here all died on the same wall: since
+    // late 2025 YouTube requires a JS runtime to solve the signature + throttling
+    // ("n") challenge, and Android has no Deno. A hidden WebView wasn't a
+    // supported yt-dlp target; app.cash.quickjs shipped a 2019 engine that can't
+    // parse the modern solver; quickjs-ng still left us bolting a JS engine into
+    // yt-dlp's provider framework and hoping.
+    //
+    // NewPipeExtractor solves the SAME problem natively: it bundles its own Rhino
+    // JS engine and does signature/throttling deobfuscation internally. Pure
+    // Java, no Python, no cookies, and it's battle-tested by NewPipe's userbase
+    // (v0.26.3 already ships SABR workarounds). GPLv3 — and so is this repo, so
+    // it is licence-compatible. See YouTubeNP.kt + mobile/python/newpipe_yt.py.
+    implementation 'com.github.TeamNewPipe:NewPipeExtractor:v0.26.3'
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Source sync
+// ─────────────────────────────────────────────────────────────────────────────
+// components/ and mobile/python/ are the single source of truth and are NOT
+// duplicated into the Android project by hand. Gradle copies them in on every
+// build so the APK can never drift from the code you actually edit.
+// ─────────────────────────────────────────────────────────────────────────────
+
+tasks.register('syncPythonSources', Sync) {
+    description = 'Copy the backend (components/ + mobile/python/) into the APK.'
+    into pythonSrc
+
+    from("$repoRoot/mobile/python") {
+        include '*.py'
+    }
+    from("$repoRoot/components") {
+        into 'components'
+        exclude '__pycache__/**'
+        // youtube_downloader.py IS now included: the experimental WebView JS
+        // engine gives YouTube the runtime it was always missing. Its module-
+        // level imports are Android-safe (browser_cookie3 is imported lazily
+        // inside a desktop-only function); it stays inert unless the user turns
+        // the experimental toggle on.
+    }
+
+    doFirst {
+        if (!file("$repoRoot/components").exists()) {
+            throw new GradleException("components/ not found at $repoRoot/components")
+        }
+    }
+}
+
+// components/ is a package, so it needs an __init__.py to import as one. The
+// desktop build gets away without it via implicit namespace packages; be explicit.
+tasks.register('ensurePythonPackage') {
+    dependsOn 'syncPythonSources'
+    doLast {
+        def init = file("$pythonSrc/components/__init__.py")
+        if (!init.exists()) {
+            init.parentFile.mkdirs()
+            init.text = '# Namespace package for the vendored backend components.\n'
+        }
+    }
+}
+
+tasks.register('syncWebAssets', Sync) {
+    description = 'Copy the built mobile React bundle into the APK assets.'
+    def dist = file("$repoRoot/frontend/dist-mobile")
+    from dist
+    into file("src/main/assets/web")
+
+    doFirst {
+        if (!dist.exists() || (dist.listFiles()?.length ?: 0) == 0) {
+            throw new GradleException(
+                "Mobile web bundle missing at ${dist}.\n" +
+                "Build it first:\n" +
+                "    cd ${repoRoot}/frontend\n" +
+                "    npm install\n" +
+                "    npm run build:mobile"
+            )
+        }
+    }
+}
+
+preBuild.dependsOn 'ensurePythonPackage', 'syncWebAssets'
+
+// Chaquopy's merge*PythonSources tasks READ src/main/python — the very directory
+// syncPythonSources WRITES. Gradle cannot infer that ordering on its own, and
+// since 8.x it hard-fails rather than risk running them in the wrong order.
+// State the dependency explicitly.
+tasks.matching { it.name ==~ /merge(Debug|Release)PythonSources/ }.configureEach {
+    dependsOn 'ensurePythonPackage'
+}
+
+// The synced trees are build outputs, not sources — never commit them.
+clean {
+    delete pythonSrc
+    delete file("src/main/assets/web")
+}

@@ -49,16 +49,18 @@ class ApiClient {
    */
   async getSuggestions(query, limit = 8) {
     if (query.length < 2) return { suggestions: [] };
-
-    const response = await fetch(
-      apiUrl(`/search/suggestions?q=${encodeURIComponent(query)}&limit=${limit}`)
-    );
-
-    if (!response.ok) {
-      throw new Error(`Suggestions failed: ${response.statusText}`);
+    // Autocomplete is a HINT, never an error condition: a transient non-200 (or
+    // a dropped connection mid-keystroke) used to throw, which the caller turned
+    // into "no suggestions at all". Degrade to empty instead.
+    try {
+      const response = await fetch(
+        apiUrl(`/search/suggestions?q=${encodeURIComponent(query)}&limit=${limit}`)
+      );
+      if (!response.ok) return { suggestions: [] };
+      return await response.json();
+    } catch {
+      return { suggestions: [] };
     }
-
-    return response.json();
   }
 
   /**
@@ -130,6 +132,84 @@ class ApiClient {
       return await r.json();
     } catch {
       return { download_dir: '' };
+    }
+  }
+
+  /**
+   * Change the download folder. Pass '' to restore the default.
+   * The backend REFUSES a folder it cannot write to, so a resolved
+   * `{ ok: false, error }` is a normal outcome, not an exception.
+   * Mobile only — the desktop build has no such route.
+   */
+  async setDownloadsDir(path) {
+    const r = await fetch(apiUrl('/downloads/dir'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: path || '' }),
+    });
+    return r.json();
+  }
+
+  /** Experimental YouTube (mobile): current support/enabled state. Never throws. */
+  async getYouTubeExperimental() {
+    try {
+      const r = await fetch(apiUrl('/youtube/experimental'));
+      if (!r.ok) return { supported: false, enabled: false };
+      return await r.json();
+    } catch {
+      return { supported: false, enabled: false };
+    }
+  }
+
+  /**
+   * Turn experimental YouTube on/off. Enabling runs an on-device self-test, so
+   * this can take several seconds and may resolve { ok:false, error } if the
+   * device can't run it — a normal outcome, not an exception.
+   */
+  async setYouTubeExperimental(enabled) {
+    const r = await fetch(apiUrl('/youtube/experimental'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: !!enabled }),
+    });
+    return r.json();
+  }
+
+  /** YouTube cookies.txt (mobile auth fallback). Never throws. */
+  async getYouTubeCookies() {
+    try {
+      const r = await fetch(apiUrl('/youtube/cookies'));
+      return r.ok ? await r.json() : { present: false };
+    } catch {
+      return { present: false };
+    }
+  }
+
+  /** Import cookies.txt content; empty string removes it. */
+  async setYouTubeCookies(content) {
+    const r = await fetch(apiUrl('/youtube/cookies'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: content || '' }),
+    });
+    return r.json();
+  }
+
+  /**
+   * Delete a downloaded file from disk (mobile). The backend refuses any path
+   * outside the download folder, so a bad `path` resolves to { ok:false }.
+   */
+  async deleteDownloadFile(path) {
+    if (!path) return { ok: false };
+    try {
+      const r = await fetch(apiUrl('/downloads/delete'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path }),
+      });
+      return r.json();
+    } catch {
+      return { ok: false };
     }
   }
 
@@ -488,6 +568,42 @@ class ApiClient {
       return await r.json();
     } catch {
       return { tiles: [] };
+    }
+  }
+
+  /**
+   * Resolve a public Spotify playlist/album URL into PLAYABLE tracks.
+   *
+   * Spotify is never streamed from — we only read its tracklist and re-find each
+   * song on JioSaavn/SoundCloud. Returns
+   * { name, image, tracks, missing, total, matched } or { error }. Never throws.
+   */
+  async importSpotify(url) {
+    try {
+      // wait=1: block for the finished result (desktop's one-shot flow). Harmless
+      // on the desktop backend, which ignores the param and blocks natively.
+      const r = await fetch(apiUrl(`/spotify/import?url=${encodeURIComponent(url || '')}&wait=1`));
+      const data = await r.json();
+      if (!r.ok) return { error: data?.error || 'Import failed', tracks: [] };
+      return data;
+    } catch (e) {
+      return { error: String(e), tracks: [] };
+    }
+  }
+
+  /**
+   * A progress SNAPSHOT of a running import (mobile). The first call starts the
+   * background job; subsequent calls report { total, done, tracks, missing,
+   * finished, error }. Poll until finished. Never throws.
+   */
+  async importSpotifyStatus(url) {
+    try {
+      const r = await fetch(apiUrl(`/spotify/import?url=${encodeURIComponent(url || '')}`));
+      const data = await r.json();
+      if (!r.ok) return { error: data?.error || 'Import failed', tracks: [], finished: true };
+      return data;
+    } catch (e) {
+      return { error: String(e), tracks: [], finished: true };
     }
   }
 

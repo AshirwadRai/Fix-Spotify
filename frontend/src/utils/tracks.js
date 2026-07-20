@@ -1,4 +1,4 @@
-import { toast } from './toast';
+import { toast } from './toast.js';
 import { User, Disc3 } from 'lucide-react';
 
 const PLAYABLE_SOURCES = new Set(['jiosaavn', 'soundcloud', 'youtube', 'youtube_music']);
@@ -261,28 +261,38 @@ export async function enrichTrackArtwork(track, apiFn) {
 export function applyEnrichment(track, enrichment) {
   if (!track || !enrichment) return track;
 
+  // ENRICHMENT IS PURELY ADDITIVE: it fills blanks, it never overwrites what the
+  // source already told us.
+  //
+  // It used to overwrite, and that was a real bug you could watch happen: iTunes
+  // supplies 600/300 artwork keys, which outrank `source:soundcloud` in
+  // ARTWORK_PRIORITY — so when iTunes matched the WRONG release (a "Summer
+  // Chills" compilation carrying a "Chill Mix" of the same song), the cover and
+  // album of the track you were listening to silently changed mid-play, from the
+  // correct one to a different record's.
+  //
+  // A source's own metadata is authoritative: SoundCloud has the uploader's real
+  // artwork, JioSaavn has a clean catalogue. Enrichment cannot verify it matched
+  // the right release, so it does not get to overrule them. The cost is that a
+  // YouTube track with a junk channel-name artist keeps it — a true-but-ugly
+  // artist beats a confidently wrong one.
+  const hasOwnArtwork = Object.values(track.artwork_urls || track.artworkUrls || {})
+    .some((u) => typeof u === 'string' && u);
   const artworkUrls = { ...(track.artwork_urls || track.artworkUrls || {}) };
-  // Overlay hi-res artwork sizes (600/300/100 from iTunes, etc.)
-  const art = enrichment.artwork || {};
-  for (const [size, url] of Object.entries(art)) {
-    if (typeof url === 'string' && url) artworkUrls[size] = url;
+  if (!hasOwnArtwork) {
+    const art = enrichment.artwork || {};
+    for (const [size, url] of Object.entries(art)) {
+      if (typeof url === 'string' && url) artworkUrls[size] = url;
+    }
   }
 
-  // JioSaavn has clean, correct metadata for its own (esp. Indian) catalog;
-  // iTunes "enrichment" tends to MANGLE it — appending "(Original Motion Picture
-  // Soundtrack)"/"- Single", rewriting "A, B" → "A & B", or mismatching outright.
-  // So for a track that came from JioSaavn, KEEP JioSaavn's artist/album and only
-  // fill a genuinely-empty field. Non-JioSaavn sources (SoundCloud/YouTube channel
-  // junk like "Maymon Abdullah") still get iTunes' cleaner artist/album. Artwork,
-  // genre, release_date and isrc always overlay/gap-fill (pure gains either way).
-  const fromJioSaavn = !!track.sources?.jiosaavn?.url;
   const enrArtist = enrichment.artist ? cleanText(enrichment.artist) : '';
   const enrAlbum = enrichment.album ? cleanText(enrichment.album) : '';
 
   const merged = {
     ...track,
-    artist: fromJioSaavn ? (track.artist || enrArtist) : (enrArtist || track.artist),
-    album: fromJioSaavn ? (track.album || enrAlbum) : (enrAlbum || track.album),
+    artist: track.artist || enrArtist,
+    album: track.album || enrAlbum,
     artwork_urls: artworkUrls,
     isrc: track.isrc || enrichment.isrc || null,
     release_date: track.release_date || enrichment.release_date || null,

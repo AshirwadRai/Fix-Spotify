@@ -7,7 +7,7 @@
 // download manager); this just records where they are.
 
 import { useState, useEffect } from 'react';
-import { getTrackId, cleanText } from './tracks';
+import { getTrackId, cleanText } from './tracks.js';
 
 const KEY = 'offlineTracks';
 const EVENT = 'offlinechange';
@@ -25,12 +25,18 @@ function writeOfflineTracks(map) {
   window.dispatchEvent(new Event(EVENT));
 }
 
-/** The offline entry for a track, or null if not downloaded. */
-export function getOfflineEntry(track) {
+/**
+ * The registry KEY for a track, or null if it isn't downloaded.
+ *
+ * Lookup and removal must agree on what "this track" means. They didn't: reads
+ * went through the tolerant match below while removeOfflineEntry() deleted by
+ * exact id only — so a song found by the fallback could be "removed" and stay
+ * in the offline library forever. Both go through here now.
+ */
+function findOfflineKey(map, track) {
   if (!track) return null;
-  const map = readOfflineTracks();
-  const exact = map[getTrackId(track)];
-  if (exact) return exact;
+  const exact = getTrackId(track);
+  if (map[exact]) return exact;
   // Tolerant fallback: the entry is keyed on the FINALIZED track_info (which may
   // have gained an isrc from enrichment that the catalog track lacks), so an
   // exact id miss isn't conclusive. Match on title+artist instead.
@@ -40,13 +46,20 @@ export function getOfflineEntry(track) {
   const t = cleanText(track.title).toLowerCase();
   const a = cleanText(track.artist).toLowerCase();
   if (!t) return null;
-  for (const entry of Object.values(map)) {
+  for (const [key, entry] of Object.entries(map)) {
     if (cleanText(entry.track?.title).toLowerCase() === t &&
         cleanText(entry.track?.artist).toLowerCase() === a) {
-      return entry;
+      return key;
     }
   }
   return null;
+}
+
+/** The offline entry for a track, or null if not downloaded. */
+export function getOfflineEntry(track) {
+  const map = readOfflineTracks();
+  const key = findOfflineKey(map, track);
+  return key ? map[key] : null;
 }
 
 export function isDownloaded(track) {
@@ -71,11 +84,34 @@ export function saveOfflineEntry(track, { filePath, bitrate, codec, size }) {
 /** Remove a track from the offline registry (does not delete the file). */
 export function removeOfflineEntry(track) {
   const map = readOfflineTracks();
-  const id = getTrackId(track);
-  if (map[id]) {
-    delete map[id];
+  const key = findOfflineKey(map, track);
+  if (key) {
+    delete map[key];
     writeOfflineTracks(map);
   }
+}
+
+/** The on-disk path for a downloaded track, or '' if we don't have it. */
+export function offlineFilePath(track) {
+  return getOfflineEntry(track)?.filePath || '';
+}
+
+/**
+ * Fully delete a download: remove the FILE from disk (backend) AND drop the
+ * registry entry. Returns true if the file was deleted. Registry is cleared
+ * regardless, so a missing/failed file can't leave a ghost "downloaded" state.
+ */
+export async function deleteDownload(track, api) {
+  const path = offlineFilePath(track);
+  let ok = false;
+  if (path) {
+    try {
+      const res = await api.deleteDownloadFile(path);
+      ok = !!res.ok;
+    } catch { /* fall through — still clear the registry */ }
+  }
+  removeOfflineEntry(track);
+  return ok;
 }
 
 /**

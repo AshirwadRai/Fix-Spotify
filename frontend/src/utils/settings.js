@@ -9,8 +9,15 @@ export const DEFAULT_SETTINGS = {
   audioQuality: 0,        // 0 = auto, else target kbps (96/128/256/320)
   crossfadeDuration: 0,   // seconds
   normalizeVolume: false,
-  showSourceBadge: true,
+  showSourceBadge: false,   // off by default — don't reveal the source unless asked
+  showQualityBadge: false,  // off by default — show the streaming bitrate on the player
   autoplay: true,         // play similar songs when the queue runs out (radio)
+
+  // Equalizer (see utils/eq.js). Off by default: enabling it routes audio through
+  // Web Audio, and the untouched path is the one guaranteed to play everywhere.
+  eqEnabled: false,
+  eqPreset: 'flat',       // an EQ_PRESETS id; 'custom' uses eqGains below
+  eqGains: [0, 0, 0, 0, 0, 0, 0, 0],   // dB per band, only read when preset === 'custom'
 };
 
 const EVENT = 'appsettingschange';

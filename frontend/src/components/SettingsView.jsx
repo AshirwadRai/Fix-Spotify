@@ -1,7 +1,128 @@
 import { useState, useEffect } from 'react';
-import { Volume2, Timer, Gauge, RotateCcw, Music2 } from 'lucide-react';
+import { RotateCcw } from 'lucide-react';
 import { readAppSettings, writeAppSettings, DEFAULT_SETTINGS } from '../utils/settings';
 import { api } from '../api';
+import { isTauri } from '../utils/config';
+
+/**
+ * Section shell shared by every settings block, matching the Android build:
+ * a plain bold title + subtitle over a divider, no coloured icon chip. The
+ * desktop settings used a different tinted chip per section (green/purple/blue/
+ * red), which read as five unrelated widgets — this is the single, calm look the
+ * app uses everywhere else.
+ */
+function Section({ title, subtitle, children }) {
+  return (
+    <section className="border-b border-white/[0.07] py-6">
+      <h2 className="text-[17px] font-extrabold tracking-tight text-white">{title}</h2>
+      {subtitle && <p className="mt-0.5 text-[12.5px] text-spotify-text-subdued">{subtitle}</p>}
+      <div className="mt-4">{children}</div>
+    </section>
+  );
+}
+
+/**
+ * Check for updates from Settings — the desktop counterpart of the mobile
+ * updater. Uses tauri-plugin-updater: it fetches the signed latest.json the CI
+ * publishes, verifies it against the pubkey baked into tauri.conf.json, then
+ * downloads and installs over the current app. Local data (playlists, likes,
+ * history) lives in the OS webview store and is untouched by the swap.
+ */
+function UpdatesSection() {
+  const [version, setVersion] = useState('');
+  // idle | checking | available | downloading | uptodate | error | ready
+  const [state, setState] = useState('idle');
+  const [info, setInfo] = useState(null);
+  const [pct, setPct] = useState(0);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    import('@tauri-apps/api/app')
+      .then((m) => m.getVersion())
+      .then(setVersion)
+      .catch(() => {});
+  }, []);
+
+  if (!isTauri()) return null;   // web/dev build has nothing to update
+
+  const check = async () => {
+    setState('checking');
+    try {
+      const { check: checkUpdate } = await import('@tauri-apps/plugin-updater');
+      const update = await checkUpdate();
+      if (update) {
+        setInfo(update);
+        setState('available');
+      } else {
+        setState('uptodate');
+      }
+    } catch (e) {
+      console.error('update check failed', e);
+      setState('error');
+    }
+  };
+
+  const install = async () => {
+    if (!info) return;
+    setState('downloading');
+    setPct(0);
+    try {
+      let total = 0;
+      let got = 0;
+      // downloadAndInstall streams progress events as it fetches the installer.
+      await info.downloadAndInstall((event) => {
+        if (event.event === 'Started') total = event.data.contentLength || 0;
+        else if (event.event === 'Progress') {
+          got += event.data.chunkLength || 0;
+          if (total) setPct(Math.round((got / total) * 100));
+        }
+      });
+      setState('ready');
+      // Relaunch into the new version. "nvm if it asks for restart" — this IS the
+      // restart, done for the user.
+      const { relaunch } = await import('@tauri-apps/plugin-process');
+      await relaunch();
+    } catch (e) {
+      console.error('update install failed', e);
+      setState('error');
+    }
+  };
+
+  return (
+    <Section
+      title="Updates"
+      subtitle={state === 'available'
+        ? `Version ${info?.version} is available`
+        : `You're on version ${version || '—'}`}
+    >
+      <div className="rounded-lg border border-white/10 bg-white/5 p-4">
+        <p className="text-sm text-spotify-text-subdued mb-3">
+          {state === 'checking' && 'Checking for updates…'}
+          {state === 'uptodate' && "You're up to date."}
+          {state === 'error' && 'Update check failed. Check your connection and try again.'}
+          {state === 'available' && 'Installing keeps your playlists, liked songs and history.'}
+          {state === 'downloading' && `Downloading… ${pct}%`}
+          {state === 'ready' && 'Restarting into the new version…'}
+          {state === 'idle' && 'Get the latest features and fixes.'}
+        </p>
+
+        {state === 'downloading' ? (
+          <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+            <div className="h-full bg-green-400 transition-[width]" style={{ width: `${pct}%` }} />
+          </div>
+        ) : (
+          <button
+            onClick={state === 'available' ? install : check}
+            disabled={state === 'checking' || state === 'ready'}
+            className="px-4 py-2 rounded-md text-sm font-semibold text-black bg-spotify-essential-bright-accent hover:brightness-110 transition-all disabled:opacity-50"
+          >
+            {state === 'available' ? 'Download & install' : state === 'checking' ? 'Checking…' : 'Check for updates'}
+          </button>
+        )}
+      </div>
+    </Section>
+  );
+}
 
 const QUALITY_OPTIONS = [
   { value: 0, label: 'Auto', desc: 'Adjusts automatically based on source' },
@@ -27,17 +148,10 @@ export function SettingsView() {
       <div className="max-w-2xl mx-auto">
         <h1 className="text-3xl font-bold text-white mb-8">Settings</h1>
 
+        <UpdatesSection />
+
         {/* ── Audio Quality ── */}
-        <section className="mb-8">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-9 h-9 rounded-lg bg-spotify-essential-bright-accent/20 flex items-center justify-center">
-              <Gauge className="w-5 h-5 text-spotify-essential-bright-accent" />
-            </div>
-            <div>
-              <h2 className="text-base font-bold text-white">Audio Quality</h2>
-              <p className="text-xs text-spotify-text-subdued">Choose preferred streaming bitrate</p>
-            </div>
-          </div>
+        <Section title="Audio quality" subtitle="Choose preferred streaming bitrate">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {QUALITY_OPTIONS.map(opt => (
               <button
@@ -55,19 +169,10 @@ export function SettingsView() {
               </button>
             ))}
           </div>
-        </section>
+        </Section>
 
         {/* ── Crossfade ── */}
-        <section className="mb-8">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-9 h-9 rounded-lg bg-purple-500/20 flex items-center justify-center">
-              <Timer className="w-5 h-5 text-purple-400" />
-            </div>
-            <div>
-              <h2 className="text-base font-bold text-white">Crossfade</h2>
-              <p className="text-xs text-spotify-text-subdued">Smoothly fade between tracks</p>
-            </div>
-          </div>
+        <Section title="Crossfade" subtitle="Smoothly fade between tracks">
           <div className="bg-white/5 rounded-lg p-4 border border-white/10">
             <div className="flex items-center justify-between mb-3">
               <span className="text-sm text-white">Duration</span>
@@ -84,7 +189,9 @@ export function SettingsView() {
               onChange={(e) => update('crossfadeDuration', Number(e.target.value))}
               className="w-full h-1 rounded-full appearance-none cursor-pointer"
               style={{
-                background: `linear-gradient(to right, #1ed760 ${(settings.crossfadeDuration / 12) * 100}%, #2a2a2a ${(settings.crossfadeDuration / 12) * 100}%)`,
+                // White-before-thumb, grey after — the same neutral fill the
+                // Android build uses, instead of the lone green gradient.
+                background: `linear-gradient(to right, #fff ${(settings.crossfadeDuration / 12) * 100}%, rgba(255,255,255,0.25) ${(settings.crossfadeDuration / 12) * 100}%)`,
               }}
             />
             <div className="flex justify-between mt-1.5">
@@ -92,19 +199,10 @@ export function SettingsView() {
               <span className="text-[10px] text-spotify-text-subdued">12s</span>
             </div>
           </div>
-        </section>
+        </Section>
 
         {/* ── Playback Toggles ── */}
-        <section className="mb-8">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-9 h-9 rounded-lg bg-blue-500/20 flex items-center justify-center">
-              <Volume2 className="w-5 h-5 text-blue-400" />
-            </div>
-            <div>
-              <h2 className="text-base font-bold text-white">Playback</h2>
-              <p className="text-xs text-spotify-text-subdued">Audio normalization and display options</p>
-            </div>
-          </div>
+        <Section title="Playback" subtitle="Audio normalization and display options">
           <div className="space-y-1">
             <ToggleRow
               label="Autoplay"
@@ -125,13 +223,13 @@ export function SettingsView() {
               onChange={(v) => update('showSourceBadge', v)}
             />
           </div>
-        </section>
+        </Section>
 
         {/* ── YouTube connection (opt-in) ── */}
         <YouTubeSection />
 
         {/* ── Reset ── */}
-        <section className="border-t border-white/10 pt-6">
+        <section className="pt-6">
           <button
             onClick={resetAll}
             className="flex items-center gap-2 text-sm text-spotify-text-subdued hover:text-white transition-colors"
@@ -145,20 +243,32 @@ export function SettingsView() {
   );
 }
 
+// Matches the Android toggle: a right-aligned pill switch, no bordered card.
 function ToggleRow({ label, description, checked, onChange }) {
   return (
-    <div
-      className="flex items-center justify-between p-3.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 transition-colors cursor-pointer"
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
       onClick={() => onChange(!checked)}
+      className="flex w-full items-center gap-4 py-3 text-left"
     >
-      <div className="flex-1 mr-4">
-        <span className="text-sm font-medium text-white">{label}</span>
-        {description && <p className="text-xs text-spotify-text-subdued mt-0.5">{description}</p>}
+      <div className="min-w-0 flex-1">
+        <span className="text-[15px] text-white">{label}</span>
+        {description && <p className="mt-0.5 text-[12px] leading-snug text-spotify-text-subdued">{description}</p>}
       </div>
-      <div className={`w-10 h-[22px] rounded-full relative transition-colors ${checked ? 'bg-spotify-essential-bright-accent' : 'bg-white/20'}`}>
-        <div className={`absolute top-[3px] w-4 h-4 rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-[22px]' : 'translate-x-[3px]'}`} />
-      </div>
-    </div>
+      <span
+        className={`shrink-0 w-12 h-7 rounded-full p-0.5 transition-colors ${
+          checked ? 'bg-spotify-essential-bright-accent' : 'bg-white/25'
+        }`}
+      >
+        <span
+          className={`block w-6 h-6 rounded-full bg-white transition-transform ${
+            checked ? 'translate-x-5' : 'translate-x-0'
+          }`}
+        />
+      </span>
+    </button>
   );
 }
 
@@ -215,16 +325,7 @@ function YouTubeSection() {
   const cap = (s) => s ? s[0].toUpperCase() + s.slice(1) : s;
 
   return (
-    <section className="mb-8">
-      <div className="flex items-center gap-3 mb-4">
-        <div className="w-9 h-9 rounded-lg bg-red-500/20 flex items-center justify-center">
-          <Music2 className="w-5 h-5 text-red-400" />
-        </div>
-        <div>
-          <h2 className="text-base font-bold text-white">YouTube</h2>
-          <p className="text-xs text-spotify-text-subdued">Optional — for full coverage of tracks only on YouTube</p>
-        </div>
-      </div>
+    <Section title="YouTube" subtitle="Optional — for full coverage of tracks only on YouTube">
       <div className="bg-white/5 rounded-lg p-4 border border-white/10">
         {status.connected ? (
           <div className="flex items-center justify-between gap-4">
@@ -297,6 +398,6 @@ function YouTubeSection() {
           </>
         )}
       </div>
-    </section>
+    </Section>
   );
 }

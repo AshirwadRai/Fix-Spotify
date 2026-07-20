@@ -1,14 +1,73 @@
 import { createContext, useState, useContext, useRef, useEffect, useCallback } from 'react';
-import { getPlayableSource, getPlayableSources, normalizeTrack, playableTracks, writeStoredTracks, getBestArtworkUrl, cleanText, getTrackId, isPlayableTrack, applyEnrichment } from '../utils/tracks';
+import { getPlayableSource, getPlayableSources, normalizeTrack, writeStoredTracks, getBestArtworkUrl, cleanText, getTrackId, isPlayableTrack, applyEnrichment } from '../utils/tracks';
 import { readAppSettings, qualityToBitrate } from '../utils/settings';
 import { apiUrl } from '../utils/config';
 import { getOfflineEntry, removeOfflineEntry } from '../utils/downloads';
+import { insertQueued } from '../utils/queue';
+import { EQ_BANDS, resolveGains, isFlat } from '../utils/eq';
+// Platform check only. Every function in androidBridge is a no-op off Android, so
+// importing it into the shared store costs the desktop bundle nothing.
+import { isAndroid } from '../mobile/androidBridge';
 import { api } from '../api';
 
 const PlayerContext = createContext();
 
 function getAppSettings() {
   return readAppSettings();
+}
+
+// ── Resume state ────────────────────────────────────────────────────────────
+// Persist the last track + timestamp so reopening the app lands exactly where
+// the user left off (paused). Kept tiny and separate from Recently Played.
+const RESUME_KEY = 'resumeState';
+
+// The UPCOMING queue is saved too, not just the current song. Without it,
+// reopening the app left you on the right track with nothing after it — so
+// swiping the mini-player forward (or pressing next) did nothing at all.
+// Capped because a queue topped up by radio grows without limit and this has to
+// stay a small localStorage write.
+const RESUME_QUEUE_MAX = 30;
+
+function saveResumeState(track, position, queue) {
+  try {
+    if (!track) return;
+    localStorage.setItem(RESUME_KEY, JSON.stringify({
+      track,
+      position: Math.max(0, Math.floor(position || 0)),
+      queue: Array.isArray(queue) ? queue.slice(0, RESUME_QUEUE_MAX) : [],
+      savedAt: Date.now(),
+    }));
+  } catch { /* storage full / unavailable — ignore */ }
+}
+
+function readResumeState() {
+  try {
+    const raw = localStorage.getItem(RESUME_KEY);
+    if (!raw) return null;
+    const s = JSON.parse(raw);
+    return s && s.track ? s : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A track is playable if it has a streaming source OR a file on disk.
+ *
+ * `isPlayableTrack`/`playableTracks` only know about streaming sources, so they
+ * discard downloaded tracks that were rebuilt from disk (mergeScannedTracks
+ * gives those `sources: {}`). Filtering a queue with them silently dropped
+ * every offline track — so a downloaded album played nothing offline.
+ *
+ * These two live here rather than in utils/tracks.js because downloads.js
+ * already imports from tracks.js; putting them there would be a cycle.
+ */
+function isPlayableOrOffline(track) {
+  return !!getPlayableSource(track) || !!getOfflineEntry(track);
+}
+
+function queueableTracks(tracks = []) {
+  return tracks.map(normalizeTrack).filter(isPlayableOrOffline);
 }
 
 /** Build the proxy stream URL honouring the user's audio-quality setting. */
@@ -73,8 +132,23 @@ export function PlayerProvider({ children }) {
   const [duration, setDuration] = useState(0);
   const [queue, setQueue] = useState([]);
   const [history, setHistory] = useState([]); // tracks we've already played
-  const [shuffle, setShuffle] = useState(false);
-  const [repeat, setRepeat] = useState('off'); // 'off' | 'all' | 'one'
+  // Shuffle/repeat SURVIVE a restart — without this, repeat-one set yesterday
+  // silently reset to 'off' on reopen ("replay doesn't work when the app opens").
+  const [shuffle, setShuffle] = useState(() => {
+    try { return !!JSON.parse(localStorage.getItem('playbackModes') || '{}').shuffle; } catch { return false; }
+  });
+  // 'off' | 'one'. Repeat is a plain ON/OFF switch: one tap repeats THIS song,
+  // another tap stops. There used to be a third 'all' state in the middle, which
+  // is why one tap didn't repeat anything — it landed on 'all' and the song
+  // still advanced. A stored 'all' from that build reads back as 'off'.
+  const [repeat, setRepeat] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('playbackModes') || '{}').repeat === 'one' ? 'one' : 'off';
+    } catch { return 'off'; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('playbackModes', JSON.stringify({ shuffle, repeat })); } catch { /* full */ }
+  }, [shuffle, repeat]);
   const [streamQuality, setStreamQuality] = useState(null); // { bitrate, codec }
   
   const audioRef = useRef(new Audio());
@@ -109,8 +183,27 @@ export function PlayerProvider({ children }) {
   // Consecutive fully-failed tracks (all sources dead). Caps auto-skip so a
   // dead queue doesn't loop forever; reset on any successful play.
   const autoSkipRef = useRef(0);
+  // Seconds to seek to once the next source is buffered. Set when RESTORING the
+  // last session (see restore effect); applied in handleCanPlay, then cleared.
+  const pendingSeekRef = useRef(0);
+  // Throttle for persisting resume state during playback (localStorage write).
+  const lastSaveRef = useRef(0);
+  // URL of the track we've already prefetched — prevents duplicate fetches and
+  // lets playTrack know the browser cache is warm.
+  const preloadedUrlRef = useRef(null);
 
-  useEffect(() => { repeatRef.current = repeat; }, [repeat]);
+  // Repeat is enforced by the AUDIO ELEMENT, not by our 'ended' handler. Native
+  // looping is seamless and — crucially — authoritative: with loop set, 'ended'
+  // never fires, so nothing downstream (crossfade, autoplay-radio, shuffle, a
+  // stale playNext) can steal the track away mid-repeat.
+  //
+  // It only governs what happens when a song RUNS OUT. Pressing next still skips
+  // (playNext never consults `repeat`), and because loop stays set, the song you
+  // land on repeats in turn — repeat follows you rather than trapping you.
+  useEffect(() => {
+    repeatRef.current = repeat;
+    audioRef.current.loop = repeat === 'one';
+  }, [repeat]);
   useEffect(() => { volumeRef.current = volume; }, [volume]);
   useEffect(() => { currentTrackRef.current = currentTrack; }, [currentTrack]);
   useEffect(() => { queueRef.current = queue; }, [queue]);
@@ -124,12 +217,21 @@ export function PlayerProvider({ children }) {
     const handleTimeUpdate = () => {
       setProgress(audio.currentTime);
 
+      // Persist the resume point at most once every 5s so a reopen lands on the
+      // same song at the same timestamp. Cheap and throttled — not every tick.
+      const now = Date.now();
+      if (now - lastSaveRef.current > 5000 && currentTrackRef.current && audio.currentTime > 0) {
+        lastSaveRef.current = now;
+        saveResumeState(currentTrackRef.current, audio.currentTime, queueRef.current);
+      }
+
       // ─── Crossfade check ──────────────────────────────────────
       const settings = getAppSettings();
       const crossfadeDuration = settings.crossfadeDuration || 0;
       if (
         crossfadeDuration > 0 &&
         !crossfadingRef.current &&
+        repeatRef.current !== 'one' &&   // repeat-one must REPLAY, not fade to next
         audio.duration &&
         isFinite(audio.duration) &&
         audio.duration - audio.currentTime <= crossfadeDuration &&
@@ -137,6 +239,38 @@ export function PlayerProvider({ children }) {
         queueRef.current.length > 0
       ) {
         startCrossfade(crossfadeDuration);
+      }
+
+      // ─── Gapless prefetch (when crossfade is OFF) ──────────────
+      // 15s before the song ends, fire a lightweight Range request for the next
+      // track's proxy URL. The browser and the backend both cache the response,
+      // so when playTrack sets audio.src the bytes are already warm. This is the
+      // fix for the "slight lag / gap between songs" report. Skipped when
+      // crossfade is active (it handles its own preload) or when there's nothing
+      // in the queue.
+      if (
+        crossfadeDuration === 0 &&
+        !preloadedUrlRef.current &&
+        repeatRef.current !== 'one' &&
+        audio.duration &&
+        isFinite(audio.duration) &&
+        audio.duration - audio.currentTime <= 15 &&
+        audio.duration - audio.currentTime > 1 &&
+        queueRef.current.length > 0
+      ) {
+        const peek = queueRef.current[0];
+        const src = getPlayableSource(peek);
+        const peekUrl = peek?.sources?.[src]?.url;
+        if (peekUrl) {
+          const proxyUrl = buildProxyUrl(peekUrl, src);
+          preloadedUrlRef.current = proxyUrl;
+          // Fetch the first 16KB — enough to warm the TCP connection and the
+          // backend's upstream socket, without downloading the whole track.
+          fetch(proxyUrl, {
+            headers: { Range: 'bytes=0-16383' },
+            priority: 'low',
+          }).catch(() => { /* best-effort — playTrack handles the real load */ });
+        }
       }
     };
     const handleDurationChange = () => {
@@ -253,6 +387,15 @@ export function PlayerProvider({ children }) {
     const handleCanPlay = () => {
       setIsLoading(false);
       setPlaybackError(null);
+      // Restoring a session: jump to the saved timestamp once the stream can
+      // play, then clear so normal playback isn't re-seeked.
+      if (pendingSeekRef.current > 0) {
+        try {
+          audio.currentTime = pendingSeekRef.current;
+          setProgress(pendingSeekRef.current);
+        } catch { /* seek before seekable — ignore */ }
+        pendingSeekRef.current = 0;
+      }
     };
     const handleWaiting = () => setIsLoading(true);
     const handlePlaying = () => {
@@ -266,6 +409,10 @@ export function PlayerProvider({ children }) {
       // Don't set isPlaying false during crossfade (we're fading out intentionally)
       if (!crossfadingRef.current) {
         setIsPlaying(false);
+      }
+      // Pausing is a natural save point for the resume timestamp.
+      if (currentTrackRef.current && audio.currentTime > 0) {
+        saveResumeState(currentTrackRef.current, audio.currentTime, queueRef.current);
       }
     };
     
@@ -293,18 +440,47 @@ export function PlayerProvider({ children }) {
   // ─── Volume normalization (Web Audio) ───────────────────────────────
   // Built lazily and ONLY when the user enables it, so the default path
   // never routes audio through Web Audio (zero risk of breaking playback).
+  // source → [EQ bands] → compressor → gain → out.
+  //
+  // The EQ filters sit in the chain unconditionally, but at 0dB a peaking filter
+  // is a pass-through — so an untouched EQ costs nothing audible and the graph
+  // never has to be rewired when the user turns it on.
   const buildAudioChain = useCallback((el, ctx) => {
     try {
       const source = ctx.createMediaElementSource(el);
+      const filters = EQ_BANDS.map((hz) => {
+        const f = ctx.createBiquadFilter();
+        f.type = 'peaking';
+        f.frequency.value = hz;
+        f.Q.value = 1.1;   // wide enough that eight bands overlap into a smooth curve
+        f.gain.value = 0;
+        return f;
+      });
       const compressor = ctx.createDynamicsCompressor();
       const gain = ctx.createGain();
-      source.connect(compressor);
+
+      // Chain the filters in series, then into the compressor.
+      const last = filters.reduce((prev, f) => { prev.connect(f); return f; }, source);
+      last.connect(compressor);
       compressor.connect(gain);
       gain.connect(ctx.destination);
-      return { source, compressor, gain };
+      return { source, filters, compressor, gain };
     } catch {
       return null;
     }
+  }, []);
+
+  const applyEq = useCallback((chain, gains) => {
+    if (!chain?.filters) return;
+    chain.filters.forEach((f, i) => {
+      try {
+        // setTargetAtTime, not a raw assignment: stepping a filter's gain
+        // instantly puts a click through the speaker. This glides it over ~20ms.
+        f.gain.setTargetAtTime(gains[i] ?? 0, f.context.currentTime, 0.02);
+      } catch {
+        try { f.gain.value = gains[i] ?? 0; } catch { /* node gone */ }
+      }
+    });
   }, []);
 
   const ensureAudioGraph = useCallback(() => {
@@ -354,18 +530,26 @@ export function PlayerProvider({ children }) {
 
   useEffect(() => {
     const apply = () => {
-      const enabled = !!readAppSettings().normalizeVolume;
-      // If it's off and we never built the graph, do nothing (keep zero-risk path).
-      if (!enabled && !audioCtxRef.current) return;
+      const settings = readAppSettings();
+      const normalize = !!settings.normalizeVolume;
+      const gains = resolveGains(settings);
+      const eqActive = !isFlat(gains);
+
+      // Neither feature in use and no graph yet → don't build one. The default
+      // path stays entirely outside Web Audio, which is the zero-risk route:
+      // createMediaElementSource is irreversible and has bitten WebViews before.
+      if (!normalize && !eqActive && !audioCtxRef.current) return;
       if (!ensureAudioGraph()) return;
       resumeAudioCtx();
-      applyNormalization(mainChainRef.current, enabled);
-      applyNormalization(crossfadeChainRef.current, enabled);
+      applyNormalization(mainChainRef.current, normalize);
+      applyNormalization(crossfadeChainRef.current, normalize);
+      applyEq(mainChainRef.current, gains);
+      applyEq(crossfadeChainRef.current, gains);
     };
     apply();
     window.addEventListener('appsettingschange', apply);
     return () => window.removeEventListener('appsettingschange', apply);
-  }, [ensureAudioGraph, applyNormalization, resumeAudioCtx]);
+  }, [ensureAudioGraph, applyNormalization, applyEq, resumeAudioCtx]);
 
   // ─── Crossfade logic ────────────────────────────────────────────
   const startCrossfade = useCallback((crossfadeDuration) => {
@@ -449,7 +633,37 @@ export function PlayerProvider({ children }) {
   }, []); // no deps needed — uses refs for all mutable state
 
   // ─── MediaSession API ────────────────────────────────────────────────
-  // Shows track info on OS lock-screen, taskbar, earphone displays, etc.
+  // Shows track info on the OS lock-screen, taskbar, earphone displays, etc.
+  //
+  // The handlers are registered ONCE, not per-track. They used to be attached
+  // inside the metadata effect, which bails out early when there is no track —
+  // so on a cold start (nothing playing yet) the OS got a media session with no
+  // action handlers at all, and its buttons did nothing until a track change
+  // happened to re-run the effect. That is the "lock screen works sometimes"
+  // bug. Every handler goes through a ref, so registering early is safe.
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+    const actions = {
+      play: () => { audioRef.current.play().catch(() => {}); },
+      pause: () => { audioRef.current.pause(); },
+      stop: () => { audioRef.current.pause(); },
+      previoustrack: () => { playPreviousRef.current?.(); },
+      nexttrack: () => { playNextRef.current?.(); },
+      seekto: (details) => {
+        if (details?.seekTime != null) {
+          audioRef.current.currentTime = details.seekTime;
+        }
+      },
+    };
+    for (const [action, handler] of Object.entries(actions)) {
+      try {
+        navigator.mediaSession.setActionHandler(action, handler);
+      } catch {
+        // Not every action is supported in every browser.
+      }
+    }
+  }, []);
+
   useEffect(() => {
     if (!('mediaSession' in navigator) || !currentTrack) return;
 
@@ -468,28 +682,81 @@ export function PlayerProvider({ children }) {
     } catch {
       // MediaMetadata not supported in some browsers
     }
+  }, [currentTrack]);
 
-    // Wire up hardware buttons
-    const actions = {
-      play: () => { audioRef.current.play().catch(() => {}); },
-      pause: () => { audioRef.current.pause(); },
-      previoustrack: () => { playPreviousRef.current?.(); },
-      nexttrack: () => { playNextRef.current?.(); },
-      seekto: (details) => {
-        if (details.seekTime != null) {
-          audioRef.current.currentTime = details.seekTime;
-        }
-      },
+  // Tell the OS whether we are actually playing. Without this the session sits at
+  // its default 'none' and the platform is free to ignore the controls entirely —
+  // the other half of the flaky-lock-screen bug.
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+    try {
+      navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
+    } catch { /* older browser */ }
+  }, [isPlaying]);
+
+  // Position lets the lock screen draw a live scrubber instead of a dead bar.
+  useEffect(() => {
+    if (!('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) return;
+    if (!duration || !isFinite(duration)) return;
+    try {
+      navigator.mediaSession.setPositionState({
+        duration,
+        position: Math.min(progress, duration),
+        playbackRate: audioRef.current.playbackRate || 1,
+      });
+    } catch { /* position out of range mid-seek — harmless */ }
+  }, [duration, progress]);
+
+  // ─── Headphones / Bluetooth disconnect (DESKTOP ONLY) ────────────────
+  // When the output device goes away, playback must STOP, not fall back to the
+  // laptop speakers at whatever volume was set — which is the "it breaks the wall
+  // and keeps playing" complaint.
+  //
+  // Android delivers this natively and precisely: ACTION_AUDIO_BECOMING_NOISY in
+  // BackendService.kt fires only for a real output going away. A desktop browser
+  // has no such broadcast, so there we fall back to watching the device list and
+  // inferring a disconnect from the output count dropping.
+  //
+  // That inference MUST NOT run on Android, and this guard is the whole bug
+  // behind "the song pauses the instant I play it" on a Moto G85 — a device we
+  // could never reproduce on, because the cause is the OEM's audio stack, not
+  // ours. Phones that ship an audio-processing service (Motorola's Dolby layer is
+  // the one we caught) re-route the output the moment playback starts. That fires
+  // `devicechange`, enumerateDevices() momentarily reports one fewer output, this
+  // watcher read the dip as "headphones unplugged", and paused the song a beat
+  // after it began. Every fix so far went into the Kotlin focus handling and so
+  // never touched it, because the pause was never coming from there.
+  useEffect(() => {
+    if (isAndroid()) return undefined;   // BECOMING_NOISY owns this on Android
+
+    const md = navigator.mediaDevices;
+    if (!md?.addEventListener || !md.enumerateDevices) return undefined;
+
+    let outputs = null;   // null until the first successful count
+    const count = async () => {
+      try {
+        const devices = await md.enumerateDevices();
+        return devices.filter(d => d.kind === 'audiooutput').length;
+      } catch {
+        return null;
+      }
     };
 
-    for (const [action, handler] of Object.entries(actions)) {
-      try {
-        navigator.mediaSession.setActionHandler(action, handler);
-      } catch {
-        // Some actions not supported in all browsers
+    const onChange = async () => {
+      const now = await count();
+      if (now == null) return;
+      const before = outputs;
+      outputs = now;
+      // Fewer outputs than a moment ago = a device disappeared.
+      if (before != null && now < before && !audioRef.current.paused) {
+        audioRef.current.pause();
       }
-    }
-  }, [currentTrack]);
+    };
+
+    count().then(n => { outputs = n; });
+    md.addEventListener('devicechange', onChange);
+    return () => md.removeEventListener('devicechange', onChange);
+  }, []);
 
   // ─── Keyboard shortcuts ──────────────────────────────────────────────
   useEffect(() => {
@@ -594,7 +861,8 @@ export function PlayerProvider({ children }) {
   useEffect(() => {
     if (!currentTrack) return;
     if (queue.length >= 3) return;
-    if (repeat === 'all') return;
+    // Repeat used to suppress this. It must NOT: pressing next while repeat is on
+    // still has to go somewhere, and an empty queue made the button dead.
     if (!readAppSettings().autoplay) return;
     if (radioLoadingRef.current) return;
     radioLoadingRef.current = true;
@@ -656,7 +924,7 @@ export function PlayerProvider({ children }) {
     return () => { cancelled = true; };
   }, [currentTrack]);
 
-  const playTrack = useCallback(async (track) => {
+  const playTrack = useCallback(async (track, opts = {}) => {
     // Cancel any ongoing crossfade
     if (crossfadeTimerRef.current) {
       clearInterval(crossfadeTimerRef.current);
@@ -668,25 +936,37 @@ export function PlayerProvider({ children }) {
 
     const audio = audioRef.current;
     const playableTrack = normalizeTrack(track);
-    if (!getPlayableSource(playableTrack)) {
+    // A DOWNLOADED track has no streaming sources of its own when it was
+    // rebuilt from disk by /api/downloads/local (mergeScannedTracks gives it
+    // `sources: {}`). Rejecting on getPlayableSource alone therefore made
+    // offline files unplayable — the exact opposite of the "offline-FIRST"
+    // promise below. A local file is a perfectly good source.
+    if (!getPlayableSource(playableTrack) && !getOfflineEntry(playableTrack)) {
       setPlaybackError("This track is not playable yet");
       setIsPlaying(false);
       setIsLoading(false);
       return;
     }
-    
+
     // Push current track to history before switching
     if (currentTrack) {
       setHistory(prev => [currentTrack, ...prev.slice(0, 49)]); // keep last 50
     }
     
+    // opts.autoplay === false loads the track PAUSED at opts.resumeAt (used to
+    // restore the last session on reopen). Default is play-now.
+    const autoplay = opts.autoplay !== false;
+    pendingSeekRef.current = autoplay ? 0 : (opts.resumeAt || 0);
+    // Reset so the next song's prefetch fires fresh.
+    preloadedUrlRef.current = null;
+
     setCurrentTrack(playableTrack);
-    setIsPlaying(true);
+    setIsPlaying(autoplay);
     setIsLoading(true);
     setPlaybackError(null);
-    setProgress(0);
+    setProgress(autoplay ? 0 : (opts.resumeAt || 0));
     setDuration(0);
-    
+
     try {
       // Offline-FIRST: a downloaded track must play from disk even if its
       // streaming sources are empty/expired (and especially when there's no
@@ -735,7 +1015,15 @@ export function PlayerProvider({ children }) {
       // the save on the first source dropped those tracks from Recently Played.
       saveRecentlyPlayed(playableTrack);
 
-      await audio.play();
+      // Restore mode (autoplay === false): load the source but stay paused; the
+      // browser blocks autoplay without a gesture anyway. handleCanPlay seeks to
+      // the saved timestamp. Otherwise start immediately.
+      if (autoplay) {
+        await audio.play();
+      } else {
+        audio.load();   // begin buffering so canplay fires and applies the seek
+        setIsLoading(false);
+      }
 
     } catch (err) {
       // Autoplay policy needs a user gesture and fires NO 'error' event, so the
@@ -753,18 +1041,64 @@ export function PlayerProvider({ children }) {
     }
   }, [currentTrack]);
 
-  const togglePlay = useCallback(() => {
-    if (!currentTrack) return;
-    const audio = audioRef.current;
-    if (isPlaying) {
-      audio.pause();
-      // Don't set isPlaying here — the 'pause' event handler will do it
-    } else {
-      resumeAudioCtx();
-      audio.play().catch(e => console.error(e));
-      // Don't set isPlaying here — the 'playing' event handler will do it
+  // Restore the last session ONCE on mount: same song, same timestamp, paused.
+  // Uses a ref because this runs a single time while playTrack's identity changes.
+  const playTrackRef = useRef(playTrack);
+  useEffect(() => { playTrackRef.current = playTrack; }, [playTrack]);
+  useEffect(() => {
+    const s = readResumeState();
+    if (s && s.track) {
+      playTrackRef.current(s.track, { autoplay: false, resumeAt: s.position });
+      // Restore what was UP NEXT too. Without this the app reopened on the right
+      // song with an empty queue, so swiping the mini-player forward (or pressing
+      // next) did nothing until you played something new.
+      const restored = queueableTracks(s.queue || []);
+      if (restored.length) setQueue(restored);
     }
-  }, [currentTrack, isPlaying, resumeAudioCtx]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Persist the queue as it changes, not only on the playback tick — otherwise
+  // queueing a few songs and immediately closing the app lost them.
+  //
+  // DEBOUNCED, because the queue also changes on every track transition
+  // (setQueue(q => q.slice(1))) and on each radio top-up. Writing straight
+  // through put a synchronous ~50KB JSON stringify + localStorage write on the
+  // main thread at the exact instant a song changes — the one moment that has to
+  // stay smooth. A 1s delay collapses that churn into a single write and still
+  // captures "queued a few songs, then closed the app".
+  useEffect(() => {
+    if (!currentTrackRef.current) return undefined;
+    const t = setTimeout(() => {
+      saveResumeState(currentTrackRef.current, audioRef.current?.currentTime || 0, queue);
+    }, 1000);
+    return () => clearTimeout(t);
+  }, [queue]);
+
+  // Explicit, NON-toggling commands. Anything that knows which state it wants —
+  // the OS media buttons, a headset unplug, an incoming call — must use these.
+  //
+  // Routing those through togglePlay() was a real bug: "pause" arriving while
+  // already paused would START playback. That is exactly what a Bluetooth
+  // disconnect does (Android sends pause), so the buds coming off could kick the
+  // song out of the phone's speaker instead of stopping it. These also read the
+  // ELEMENT rather than React state, so a command that lands before a re-render
+  // still does the right thing.
+  const pause = useCallback(() => {
+    audioRef.current.pause();
+  }, []);
+
+  const resume = useCallback(() => {
+    if (!currentTrackRef.current) return;
+    resumeAudioCtx();
+    audioRef.current.play().catch(() => {});
+  }, [resumeAudioCtx]);
+
+  const togglePlay = useCallback(() => {
+    if (!currentTrackRef.current) return;
+    if (audioRef.current.paused) resume();
+    else pause();
+  }, [pause, resume]);
 
   const seek = useCallback((time) => {
     const audio = audioRef.current;
@@ -794,13 +1128,7 @@ export function PlayerProvider({ children }) {
       const nextTrack = queue[0];
       setQueue(q => q.slice(1));
       playTrack(nextTrack);
-    } else if (repeat === 'all' && history.length > 0) {
-      // Loop: rebuild queue from history and start over
-      const reversed = [...history].reverse();
-      setQueue(reversed.slice(1));
-      playTrack(reversed[0]);
-      setHistory([]);
-    } else if (readAppSettings().autoplay && repeat !== 'all' && !radioLoadingRef.current) {
+    } else if (readAppSettings().autoplay && !radioLoadingRef.current) {
       // Queue exhausted — pull radio similar tracks and keep playing (fallback
       // for when the prefetch effect hasn't topped the queue up in time).
       // The current song keeps playing during the async fetch.
@@ -818,7 +1146,7 @@ export function PlayerProvider({ children }) {
     } else {
       audioRef.current.pause(); // nothing to play next — pause syncs isPlaying via event
     }
-  }, [queue, shuffle, repeat, history, playTrack, fetchRadioTracks]);
+  }, [queue, playTrack, fetchRadioTracks]);
 
   // Keep the ref always pointing to the latest playNext
   useEffect(() => { playNextRef.current = playNext; }, [playNext]);
@@ -875,25 +1203,36 @@ export function PlayerProvider({ children }) {
   const playPreviousRef = useRef(playPrevious);
   useEffect(() => { playPreviousRef.current = playPrevious; }, [playPrevious]);
 
+  // Both of these used to front-insert, so every new add jumped the ones before
+  // it — queue three songs and they played back-to-front. See utils/queue.js for
+  // the ordering rule (and its test).
   const addToQueue = useCallback((track) => {
     const playableTrack = normalizeTrack(track);
-    if (!getPlayableSource(playableTrack)) return;
-    // Insert before the first autoplay/radio track so manual picks play first.
-    setQueue(q => {
-      const idx = q.findIndex(t => t._autoplay);
-      if (idx === -1) return [...q, playableTrack];
-      return [...q.slice(0, idx), playableTrack, ...q.slice(idx)];
-    });
+    if (!isPlayableOrOffline(playableTrack)) return;
+    setQueue(q => insertQueued(q, playableTrack));
   }, []);
 
   const addNext = useCallback((track) => {
     const playableTrack = normalizeTrack(track);
-    if (!getPlayableSource(playableTrack)) return;
-    setQueue(q => [playableTrack, ...q]);
+    if (!isPlayableOrOffline(playableTrack)) return;
+    setQueue(q => insertQueued(q, playableTrack, { playNext: true }));
   }, []);
 
   const removeFromQueue = useCallback((index) => {
     setQueue(q => q.filter((_, i) => i !== index));
+  }, []);
+
+  // Move a queue item from one position to another (drag-to-reorder). Also
+  // updates the remembered natural order so a later un-shuffle stays consistent.
+  const reorderQueue = useCallback((from, to) => {
+    setQueue(q => {
+      if (from === to || from < 0 || to < 0 || from >= q.length || to >= q.length) return q;
+      const next = q.slice();
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      naturalOrderRef.current = null; // manual order now wins over shuffle memory
+      return next;
+    });
   }, []);
 
   const clearQueue = useCallback(() => {
@@ -904,7 +1243,7 @@ export function PlayerProvider({ children }) {
   // the queued remainder is shuffled (and natural order remembered) so playing
   // from any list respects shuffle — the engine itself plays the queue in order.
   const replaceQueue = useCallback((tracks) => {
-    const list = playableTracks(tracks);
+    const list = queueableTracks(tracks);
     if (shuffleRef.current) {
       naturalOrderRef.current = list;
       setQueue(shuffleArray(list));
@@ -941,7 +1280,7 @@ export function PlayerProvider({ children }) {
   // capturing natural order so a later un-shuffle can restore it. One command =
   // no race between setting the queue and the flag.
   const playCollection = useCallback((tracks, shuffled) => {
-    const list = playableTracks(tracks);
+    const list = queueableTracks(tracks);
     if (list.length === 0) return;
     setShuffle(shuffled);
     if (shuffled) {
@@ -957,12 +1296,9 @@ export function PlayerProvider({ children }) {
     }
   }, [playTrack]);
 
-  const cycleRepeat = useCallback(() => {
-    setRepeat(r => {
-      if (r === 'off') return 'all';
-      if (r === 'all') return 'one';
-      return 'off';
-    });
+  // One tap = repeat this song. Another = stop. No third state to tab through.
+  const toggleRepeat = useCallback(() => {
+    setRepeat(r => (r === 'one' ? 'off' : 'one'));
   }, []);
 
   // Recently played persistence
@@ -970,6 +1306,7 @@ export function PlayerProvider({ children }) {
     try {
       const stored = JSON.parse(localStorage.getItem('recentlyPlayed') || '[]');
       writeStoredTracks('recentlyPlayed', [track, ...stored], 20);
+      window.dispatchEvent(new Event('recentlyplayedchange'));  // Home refreshes live
     } catch (e) {
       console.error("Failed to save recently played:", e);
     }
@@ -993,6 +1330,8 @@ export function PlayerProvider({ children }) {
         playTrack,
         playCollection,
         togglePlay,
+        pause,
+        resume,
         seek,
         changeVolume,
         playNext,
@@ -1001,9 +1340,10 @@ export function PlayerProvider({ children }) {
         addToQueue,
         addNext,
         removeFromQueue,
+        reorderQueue,
         clearQueue,
         toggleShuffle,
-        cycleRepeat,
+        toggleRepeat,
       }}
     >
       {children}

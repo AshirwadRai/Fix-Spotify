@@ -3,20 +3,33 @@ import { getBestArtworkUrl } from '../utils/tracks';
 
 /**
  * Dynamic playlist cover art component.
+ * - a custom `image` the user picked wins outright
  * - 0 tracks: music icon placeholder
  * - 1 track: full cover of that track
  * - 2 tracks: side by side (50/50 horizontal)
  * - 3 tracks: 2 top + 1 bottom (spanning full width)
  * - 4+ tracks: 2×2 grid of first 4 tracks
  */
-export function PlaylistCover({ tracks = [], size = 48 }) {
+export function PlaylistCover({ tracks = [], size = 48, image = null }) {
+  const s = size;
+
+  // A cover the user chose deliberately always beats one we assembled for them.
+  if (image) {
+    return (
+      <img
+        src={image}
+        alt=""
+        className="object-cover rounded-md"
+        style={{ width: s, height: s }}
+      />
+    );
+  }
+
   // Collect artwork URLs from tracks
   const artworks = tracks
     .map(t => getBestArtworkUrl(t))
     .filter(Boolean)
     .slice(0, 4);
-
-  const s = size;
 
   // No artwork available
   if (artworks.length === 0) {
