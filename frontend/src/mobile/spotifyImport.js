@@ -46,13 +46,6 @@ export function startImport(url) {
   timer = setInterval(poll, 800);
 }
 
-/** Forget the current import (e.g. after it's saved or dismissed for good). */
-export function clearImport() {
-  stop();
-  state = empty();
-  listeners.forEach((l) => l());
-}
-
 function subscribe(l) { listeners.add(l); return () => listeners.delete(l); }
 function snapshot() { return state; }
 

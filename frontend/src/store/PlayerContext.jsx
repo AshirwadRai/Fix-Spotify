@@ -1060,9 +1060,19 @@ export function PlayerProvider({ children }) {
 
   // Persist the queue as it changes, not only on the playback tick — otherwise
   // queueing a few songs and immediately closing the app lost them.
+  //
+  // DEBOUNCED, because the queue also changes on every track transition
+  // (setQueue(q => q.slice(1))) and on each radio top-up. Writing straight
+  // through put a synchronous ~50KB JSON stringify + localStorage write on the
+  // main thread at the exact instant a song changes — the one moment that has to
+  // stay smooth. A 1s delay collapses that churn into a single write and still
+  // captures "queued a few songs, then closed the app".
   useEffect(() => {
-    if (!currentTrackRef.current) return;
-    saveResumeState(currentTrackRef.current, audioRef.current?.currentTime || 0, queue);
+    if (!currentTrackRef.current) return undefined;
+    const t = setTimeout(() => {
+      saveResumeState(currentTrackRef.current, audioRef.current?.currentTime || 0, queue);
+    }, 1000);
+    return () => clearTimeout(t);
   }, [queue]);
 
   // Explicit, NON-toggling commands. Anything that knows which state it wants —

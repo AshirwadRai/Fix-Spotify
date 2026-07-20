@@ -5,7 +5,7 @@ import { TrackItem } from './TrackItem';
 import { normalizeTracks, cleanText } from '../../utils/tracks';
 import { usePlayFrom } from '../usePlayFrom';
 import { createPlaylist, addTrackToPlaylist } from '../usePlaylists';
-import { startImport, clearImport, useSpotifyImport } from '../spotifyImport';
+import { startImport, useSpotifyImport } from '../spotifyImport';
 import { toast } from '../../utils/toast';
 
 /** True for a public Spotify playlist/album link (or spotify: URI). */
@@ -55,7 +55,10 @@ export function SpotifyImportSheet({ url, onClose, onMenu }) {
     if (!pl) return;
     tracks.forEach((t) => addTrackToPlaylist(pl.id, t));
     setSavedUrl(url);
-    clearImport();   // done with it — stop tracking so it doesn't resume later
+    // NOT clearImport(): wiping the store here nulls its url, which makes
+    // `active` fall back to the placeholder below — flipping this screen from
+    // the saved tracklist straight back to the progress bar. A finished job
+    // costs nothing to keep (the resume banner only shows unfinished ones).
     toast(`Saved “${pl.name}” to your library`);
   };
 

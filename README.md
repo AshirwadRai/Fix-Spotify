@@ -258,6 +258,7 @@ node src/utils/queue.test.mjs                 # queued songs play in the order t
 node src/utils/eq.test.mjs                    # EQ curves resolve, clamp, and stay flat when off
 node src/utils/pins.test.mjs                  # pinned rows sort to the top and notify
 node src/utils/downloads.test.mjs             # a download resolves the same way on read and delete
+node src/utils/enrich.test.mjs                # enrichment fills blanks, never overwrites the source
 ```
 
 ---
