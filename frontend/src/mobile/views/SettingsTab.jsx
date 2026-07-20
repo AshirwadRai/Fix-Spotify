@@ -13,7 +13,6 @@ import {
 import { api } from '../../api';
 import { toast } from '../../utils/toast';
 import { ConfirmDialog } from '../components/ConfirmDialog';
-import { CHANGELOG } from '../changelog';
 import {
   isAndroid, getAppVersion, checkForUpdate, installUpdate, registerUpdateHandlers,
   requestStorageAccess, pickDownloadFolder,
@@ -271,14 +270,6 @@ export function SettingsTab({ onClose }) {
     );
   }
 
-  if (panel === 'changelog') {
-    return (
-      <Panel title="What's new" onBack={() => setPanel(null)}>
-        <ChangelogPanel installed={getAppVersion()} />
-      </Panel>
-    );
-  }
-
   return (
     <div className="flex flex-col h-full bg-spotify-base">
       <div className="pt-safe shrink-0">
@@ -338,15 +329,10 @@ export function SettingsTab({ onClose }) {
 
         <StorageSection />
 
-        {/* About & help — learn the app and keep it current, grouped near the
-            bottom where help-type items conventionally live. */}
+        {/* About & help — grouped near the bottom where help-type items
+            conventionally live. */}
         <Section title="About & help" inset>
           <PanelRow label="Tips & shortcuts" onClick={() => setPanel('tips')} />
-          <PanelRow
-            label="What's new"
-            value={getAppVersion() ? `v${getAppVersion()}` : null}
-            onClick={() => setPanel('changelog')}
-          />
         </Section>
 
         <UpdateSection />
@@ -772,53 +758,6 @@ function YouTubeExperimentalToggle() {
       disabled={busy || !state.supported}
       onChange={toggle}
     />
-  );
-}
-
-/**
- * The full changelog history, collapsed. One tappable row per version so the
- * screen isn't a wall of bullet points; tapping a version expands its notes.
- * The installed version is marked and starts expanded so "what changed in the
- * one I'm running" is visible without a tap.
- */
-function ChangelogPanel({ installed }) {
-  const [open, setOpen] = useState(() => installed || CHANGELOG[0]?.version || null);
-  return (
-    <div className="px-4 py-2">
-      {CHANGELOG.map((entry) => {
-        const expanded = open === entry.version;
-        return (
-          <div key={entry.version} className="border-b border-white/[0.06]">
-            <button
-              type="button"
-              onClick={() => setOpen(expanded ? null : entry.version)}
-              className="tap flex w-full items-center gap-3 py-3.5 text-left"
-            >
-              <span className="flex-1 text-[15px] font-semibold">Version {entry.version}</span>
-              {entry.version === installed && (
-                <span className="rounded-full bg-spotify-essential-bright-accent/15 px-2 py-0.5 text-[10px] font-bold text-spotify-essential-bright-accent">
-                  Installed
-                </span>
-              )}
-              <ChevronRight
-                size={18}
-                className={`text-spotify-text-subdued transition-transform duration-fast ${expanded ? 'rotate-90' : ''}`}
-              />
-            </button>
-            {expanded && (
-              <ul className="space-y-1.5 pb-4 pl-1">
-                {entry.highlights.map((line) => (
-                  <li key={line} className="flex items-start gap-2 text-[12.5px] leading-snug text-white/85">
-                    <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-spotify-text-subdued" />
-                    <span>{line}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        );
-      })}
-    </div>
   );
 }
 
