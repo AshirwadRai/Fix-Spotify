@@ -127,6 +127,19 @@ export default withMermaid(
       docFooter: { prev: 'Previous', next: 'Next' },
     },
 
-    mermaid: { theme: 'base' },
+    // Mermaid sizes each node by measuring its label, so it MUST be told the
+    // same font the page actually renders in. Left at its default it measures
+    // in one face and paints in another, undersizes the box, and clips the last
+    // line of every three-line node — which is what ate "downloads",
+    // "(Tauri + WebView2)" and "127.0.0.1:8765" in the architecture diagrams.
+    mermaid: {
+      theme: 'base',
+      fontFamily: 'Montserrat, ui-sans-serif, system-ui, sans-serif',
+      themeVariables: {
+        fontFamily: 'Montserrat, ui-sans-serif, system-ui, sans-serif',
+        fontSize: '14px',
+      },
+      flowchart: { padding: 14, nodeSpacing: 40, rankSpacing: 56, useMaxWidth: true },
+    },
   })
 );
