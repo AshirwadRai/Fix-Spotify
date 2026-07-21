@@ -21,6 +21,7 @@ import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
 import android.util.Log
+import android.view.KeyEvent
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.media.app.NotificationCompat.MediaStyle
@@ -369,6 +370,32 @@ class BackendService : Service() {
                 override fun onSeekTo(pos: Long) {
                     lastPositionMs = pos
                     transportListener?.onCommand("seek:$pos")
+                }
+
+                // Diagnostic only — headsets disagree wildly about what a
+                // double-press sends. Some emit MEDIA_NEXT/MEDIA_PREVIOUS,
+                // others hammer HEADSETHOOK and lean on Android's timing-based
+                // multi-click translation, which OEMs implement inconsistently.
+                // Logging the raw event tells us which case a given pair of
+                // earbuds is, instead of guessing at a mapping and breaking the
+                // headsets that already work. super() is still called, so
+                // behaviour is unchanged.
+                override fun onMediaButtonEvent(intent: Intent): Boolean {
+                    val ev = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        intent.getParcelableExtra<KeyEvent>(Intent.EXTRA_KEY_EVENT)
+                    }
+                    if (ev != null) {
+                        Log.i(
+                            TAG,
+                            "MEDIABTN keyCode=${ev.keyCode} (${KeyEvent.keyCodeToString(ev.keyCode)}) " +
+                                "action=${ev.action} repeat=${ev.repeatCount} " +
+                                "downTime=${ev.downTime} eventTime=${ev.eventTime}"
+                        )
+                    }
+                    return super.onMediaButtonEvent(intent)
                 }
             })
             isActive = true

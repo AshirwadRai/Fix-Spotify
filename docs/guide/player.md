@@ -15,11 +15,20 @@ A soft half-disc lights up from the tapped edge and shows the running total, You
 
 > That intro you always skip is two taps away.
 
-## Swipe the mini player to change song
+## Swipe to change song
 
-On the mini player at the bottom, **swipe left for the next song, right for the previous one**. No need to expand anything or aim for a small button.
+**Swipe left for the next song, right for the previous one.** It works in both players:
 
-The bar works out whether you meant to swipe sideways or scroll the page from the first few pixels of movement, then commits — so it fires reliably even if your thumb drifts.
+| Where | How |
+| --- | --- |
+| **Mini player** | Swipe the bar itself, without expanding anything |
+| **Full player** | Swipe across the artwork |
+
+No button to find, no small target to aim at.
+
+Both work out whether you meant to swipe sideways or scroll from the first few pixels of movement, then commit — so it fires reliably even if your thumb drifts.
+
+On the artwork, the picture follows your finger and needs a clear push before it commits. Let go early and it springs back, nothing changes. That threshold is what keeps this gesture and the double-tap below from tripping over each other on the same artwork.
 
 ## The scrubber
 

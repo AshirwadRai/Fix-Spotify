@@ -114,12 +114,11 @@ export default withMermaid(
       editLink: {
         pattern:
           'https://github.com/AshirwadRai/Fix-Spotify/edit/main/docs/:path',
-        text: 'Improve this page on GitHub',
+        text: 'Suggest an edit to this page',
       },
 
       footer: {
-        message:
-          'For educational and personal use. Support the artists you love — buy their music.',
+        message: 'For educational and personal use.',
         copyright: 'GPL v3 · Built with VitePress',
       },
 

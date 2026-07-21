@@ -79,7 +79,6 @@ const loop = [...frames, ...frames];
         </article>
       </div>
     </div>
-    <p class="fs-reel-hint">Hover to pause</p>
   </section>
 </template>
 
@@ -119,7 +118,7 @@ const loop = [...frames, ...frames];
   display: flex;
   gap: 16px;
   width: max-content;
-  animation: fs-roll 46s linear infinite;
+  animation: fs-roll 28s linear infinite;
 }
 
 .fs-reel-viewport:hover .fs-reel-track {
@@ -173,13 +172,6 @@ const loop = [...frames, ...frames];
   font-size: 13.5px;
   line-height: 1.6;
   color: var(--vp-c-text-2);
-}
-
-.fs-reel-hint {
-  margin-top: 10px;
-  text-align: center;
-  font-size: 12px;
-  color: var(--vp-c-text-3);
 }
 
 /* The strip only earns its space when it can show a few frames at once. */

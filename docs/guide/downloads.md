@@ -2,6 +2,19 @@
 
 Downloads are queued and tagged.
 
+::: warning Playing a song does not save it
+Streaming and downloading are separate things. A song you played online is **not**
+kept for later — turn your data off and it won't play again.
+
+Nothing is written to your device until you tap **Download**. That's deliberate:
+a download is a real file, in your music folder, tagged and permanent, that plays
+in any app. A leftover stream would be none of those things — the system can
+discard it whenever it needs the space, and you'd have no way to see what was
+kept or to rely on it.
+
+**Want a song offline? Download it once. It stays.**
+:::
+
 ## Tagged with what you actually saw
 
 **A download embeds exactly what the player showed you** — same artist, same album, same artwork.
