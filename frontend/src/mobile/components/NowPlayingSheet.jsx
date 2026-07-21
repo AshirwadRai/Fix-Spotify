@@ -119,6 +119,80 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
     bumpSeek(side);
   };
 
+  // ── Swipe the artwork to change song ──────────────────────────────────────
+  //
+  // Shares the artwork with the double-tap seek above, so the two must not fight.
+  // The rule is direction-then-distance, decided from the first few pixels:
+  //   · moved mostly DOWN  → hand it back, that's the sheet's dismiss gesture
+  //   · moved past 8px across → this is a swipe, and the release is NOT a tap
+  //   · released past 64px    → commit; anything less springs back
+  // Below the commit threshold nothing happens at all, which is what keeps a
+  // sloppy double-tap from turning into an accidental skip.
+  //
+  // The art follows the finger at 55% for weight, then leaves and re-enters on
+  // a slow-out curve. It is deliberately unhurried: a skip is a change of
+  // content, and snapping instantly reads as a glitch rather than a transition.
+  const SWIPE_COMMIT = 64;
+  const dragRef = useRef({ x: 0, y: 0, dx: 0, active: false, moved: false });
+  const [dragX, setDragX] = useState(0);
+  const [gliding, setGliding] = useState(false);
+
+  const onArtTouchStart = (e) => {
+    const t = e.touches[0];
+    dragRef.current = { x: t.clientX, y: t.clientY, dx: 0, active: true, moved: false };
+    setGliding(false);
+  };
+
+  const onArtTouchMove = (e) => {
+    const d = dragRef.current;
+    if (!d.active) return;
+    const t = e.touches[0];
+    const dx = t.clientX - d.x;
+    const dy = t.clientY - d.y;
+    // Commit to an axis once, from the first meaningful movement.
+    if (!d.moved && Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 8) {
+      d.active = false;                      // vertical — not ours
+      return;
+    }
+    if (Math.abs(dx) > 8) d.moved = true;
+    d.dx = dx;
+    if (d.moved) setDragX(dx * 0.55);        // resistance, so it feels weighted
+  };
+
+  const onArtTouchEnd = (e) => {
+    const d = dragRef.current;
+    d.active = false;
+
+    if (d.moved && Math.abs(d.dx) > SWIPE_COMMIT) {
+      const goNext = d.dx < 0;
+      const w = window.innerWidth;
+      setGliding(true);
+      setDragX(goNext ? -w : w);             // glide the old art off
+      setTimeout(() => {
+        if (goNext) playNext(); else playPrevious();
+        // Drop the incoming art on the far side with NO transition, then let it
+        // travel back to centre on the next frame — that is the entry half of
+        // the move. Without the untransitioned reset it teleports instead.
+        setGliding(false);
+        setDragX(goNext ? w : -w);
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => { setGliding(true); setDragX(0); });
+        });
+      }, 260);
+      d.moved = false;
+      return;
+    }
+
+    if (d.moved) {                            // short of the threshold — spring back
+      setGliding(true);
+      setDragX(0);
+      d.moved = false;
+      return;
+    }
+
+    onArtTap(e);                              // never moved — it really was a tap
+  };
+
   // Reset to the artwork pane on track change, so a new song never opens on the
   // previous song's lyrics.
   useEffect(() => {
@@ -224,11 +298,27 @@ export function NowPlayingSheet({ open, onClose, onOpenArtist, onAddToPlaylist }
       <div className="flex-1 min-h-0 flex flex-col">
         {pane === 'art' && (
           <div
-            className="relative flex-1 min-h-0 flex items-center justify-center px-6"
-            onTouchEnd={onArtTap}
+            className="relative flex-1 min-h-0 flex items-center justify-center px-6 overflow-hidden"
+            onTouchStart={onArtTouchStart}
+            onTouchMove={onArtTouchMove}
+            onTouchEnd={onArtTouchEnd}
             onClick={(e) => { if (!('ontouchstart' in window)) onArtTap(e); }}
           >
-            <div className="w-full aspect-square max-h-full rounded-lg overflow-hidden shadow-2xl bg-black/30 pointer-events-none">
+            <div
+              className="w-full aspect-square max-h-full rounded-lg overflow-hidden shadow-2xl bg-black/30 pointer-events-none"
+              style={{
+                transform: `translate3d(${dragX}px,0,0)`,
+                // Fade slightly as it leaves so the swap reads as a change of
+                // content rather than the same image sliding around.
+                opacity: 1 - Math.min(Math.abs(dragX) / (window.innerWidth * 0.9), 0.65),
+                // Slow-out curve, long enough to be followed by the eye. Only
+                // while gliding — during the drag it must track the finger 1:1.
+                transition: gliding
+                  ? 'transform 420ms cubic-bezier(0.22,0.61,0.24,1), opacity 420ms cubic-bezier(0.22,0.61,0.24,1)'
+                  : 'none',
+                willChange: 'transform',
+              }}
+            >
               {artwork ? (
                 <img src={artwork} alt="" className="w-full h-full object-cover" />
               ) : null}

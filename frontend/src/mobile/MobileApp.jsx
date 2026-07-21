@@ -104,6 +104,38 @@ function Shell() {
     return () => window.removeEventListener('pointerdown', markTouched);
   }, []);
 
+  // Latest playback truth, readable from inside the transport callbacks below
+  // without making them re-register on every tick.
+  const liveRef = useRef(null);
+  useEffect(() => {
+    liveRef.current = { currentTrack, isPlaying, duration, progress };
+  });
+
+  // Re-assert the real state to Android after a transport command.
+  //
+  // This is what fixes "single tap does nothing, tap again and it works".
+  // A headset's single tap is one keycode; Android decides whether that means
+  // onPlay() or onPause() by reading the media session's CURRENT PlaybackState.
+  // The service flips that state optimistically the moment it dispatches a
+  // command, so any command the app does not actually carry out — most obviously
+  // a "play" swallowed by the boot guard below — leaves the session inverted.
+  // From then on every single tap picks the wrong branch and appears dead, until
+  // a second tap flips it back. Reporting the truth shortly after each command
+  // means an optimistic guess can be wrong for a moment, but never stay wrong.
+  const reassert = useCallback(() => {
+    setTimeout(() => {
+      const s = liveRef.current;
+      if (!s) return;
+      reportPlayback({
+        track: s.currentTrack,
+        isPlaying: s.isPlaying,
+        duration: s.duration,
+        position: s.progress,
+        artwork: s.currentTrack ? getBestArtworkUrl(s.currentTrack) : '',
+      });
+    }, 350); // long enough for <audio> to emit 'playing' / 'pause'
+  }, []);
+
   // play/pause are EXPLICIT, not togglePlay. Android sends a real "pause" when the
   // headset is unplugged or the buds disconnect; routing that through a toggle
   // meant a pause arriving while already paused would START the music — out loud,
@@ -111,15 +143,19 @@ function Shell() {
   useEffect(
     () => registerTransport({
       play: () => {
-        if (!window.__userTouched && Date.now() - bootAtRef < 4000) return;
+        if (!window.__userTouched && Date.now() - bootAtRef < 4000) {
+          reassert(); // we ignored it — undo the session's optimistic "playing"
+          return;
+        }
         resume();
+        reassert();
       },
-      pause,
-      next: playNext,
-      previous: playPrevious,
+      pause: () => { pause(); reassert(); },
+      next: () => { playNext(); reassert(); },
+      previous: () => { playPrevious(); reassert(); },
       seek,
     }),
-    [pause, resume, playNext, playPrevious, seek, bootAtRef]
+    [pause, resume, playNext, playPrevious, seek, bootAtRef, reassert]
   );
 
   // ── Connectivity ────────────────────────────────────────────────────────
