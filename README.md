@@ -5,7 +5,7 @@
 **A multi-source music search, streaming and download client for Windows and Android**
 
 [![Release](https://img.shields.io/github/v/release/AshirwadRai/Fix-Spotify?style=for-the-badge&color=1DB954&label=Download)](https://github.com/AshirwadRai/Fix-Spotify/releases/latest)
-[![User Manual](https://img.shields.io/badge/user-manual-darkred?style=for-the-badge)](docs/USER_GUIDE.md)
+[![User Manual](https://img.shields.io/badge/user-manual-darkred?style=for-the-badge)](https://ashirwadrai.github.io/Fix-Spotify/)
 [![License](https://img.shields.io/github/license/AshirwadRai/Fix-Spotify?style=for-the-badge&color=blue)](LICENSE)
 [![Build](https://img.shields.io/github/actions/workflow/status/AshirwadRai/Fix-Spotify/build-release.yml?style=for-the-badge&label=Build)](https://github.com/AshirwadRai/Fix-Spotify/actions)
 
@@ -40,7 +40,7 @@ Two clients share the same Python backend and the same React codebase:
 Multi-source search with cross-source fallback, radio and autoplay, an eight-band equalizer,
 crossfade, offline downloads with embedded metadata, synced lyrics, and lock-screen controls.
 
-> **Installing or using the app? → [User Guide](docs/USER_GUIDE.md)**
+> **Installing or using the app? → [Documentation](https://ashirwadrai.github.io/Fix-Spotify/)**
 > Downloads, features and troubleshooting are covered there. The rest of this document is for
 > people working on the code.
 

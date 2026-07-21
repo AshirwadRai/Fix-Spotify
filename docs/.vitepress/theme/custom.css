@@ -4,7 +4,19 @@
  * from --fs-accent / --fs-accent-2, so a future logo change is an edit to these
  * two lines rather than a hunt through the stylesheet.
  */
+/* Montserrat, self-hosted via Fontsource — no request to Google's CDN, so the
+ * site keeps the "nothing phones home" promise the docs make on its own front
+ * page. Google Sans was the first choice and is not usable here: it is Google's
+ * proprietary corporate typeface, licensed only for Google's own products and
+ * never published on Google Fonts. Montserrat was the stated fallback. */
+@import '@fontsource/montserrat/400.css';
+@import '@fontsource/montserrat/500.css';
+@import '@fontsource/montserrat/600.css';
+@import '@fontsource/montserrat/700.css';
+
 :root {
+  --vp-font-family-base: 'Montserrat', ui-sans-serif, system-ui, sans-serif;
+
   --fs-accent: #1db954;
   --fs-accent-2: #1ed760;
   --fs-accent-deep: #14833b;
@@ -268,4 +280,44 @@ body,
   .VPDocFooter .pager-link .desc {
     transition: none !important;
   }
+}
+
+/* Mermaid label safety net.
+ *
+ * Node text lives inside a <foreignObject>, which CLIPS anything taller than
+ * the height mermaid computed. Telling mermaid the right font (see config.mjs)
+ * fixes the measurement; letting the object overflow means a rounding error
+ * degrades into a pixel of spill rather than a truncated word. Both together,
+ * because a diagram that silently eats a line is worse than an ugly one. */
+.mermaid foreignObject {
+  overflow: visible;
+}
+
+/* Pin label typography to exactly what mermaid assumes when it measures
+ * (14px, line-height 1.5 → 21px a line). Inheriting VitePress's prose type
+ * here is the actual bug: the box gets sized for one line height and painted
+ * at another, and the difference is the missing third line. */
+.mermaid .nodeLabel,
+.mermaid .edgeLabel,
+.mermaid .cluster-label,
+.mermaid foreignObject div,
+.mermaid foreignObject span,
+/* The <p> is the one that actually matters: mermaid wraps every label in one,
+ * and .vp-doc's prose rule hands it line-height 28px against the 21px mermaid
+ * budgeted. Three lines, 21px lost, last line clipped. */
+.mermaid foreignObject p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* Give the diagrams the full column and let them scroll rather than shrink —
+ * these two are wide, and squeezing them into the prose width is what makes
+ * the text unreadable on a laptop. */
+.vp-doc div:has(> .mermaid) {
+  overflow-x: auto;
+}
+
+.mermaid {
+  min-width: 720px;
 }
