@@ -15,12 +15,11 @@ export default withMermaid(
     description:
       'One music library, three sources, no account. Windows and Android — search, stream and download from JioSaavn, SoundCloud and YouTube.',
     cleanUrls: true,
-    lastUpdated: true,
 
-    // The old single-file guide still lives here until it is retired. Excluding
-    // it keeps it out of the built site and out of the search index, so there is
-    // never a stale duplicate of a page competing with the real one.
-    srcExclude: ['USER_GUIDE.md'],
+    // No "Last updated" stamp. It reads as staleness rather than freshness: a
+    // page that is simply still correct looks abandoned next to one touched by
+    // an unrelated typo fix, and the date says nothing about either.
+    lastUpdated: false,
 
     head: [
       ['link', { rel: 'icon', type: 'image/png', href: `${base}logo.png` }],

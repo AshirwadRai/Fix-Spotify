@@ -20,33 +20,27 @@ hero:
       link: https://github.com/AshirwadRai/Fix-Spotify
 
 features:
-  - icon: 🔎
-    title: One song, one row
+  - title: One song, one row
     details: If a track lives on three sources you see it once. The other two stay on as silent backups, so a dead stream swaps sources instead of throwing an error at you.
     link: /guide/finding-music
     linkText: How search works
-  - icon: 🎚️
-    title: An equalizer people notice
+  - title: An equalizer people notice
     details: Eight bands, eleven presets, a custom curve, and gains clamped to ±12 dB on purpose — the reason a heavy bass boost stays punchy instead of turning to mud.
     link: /guide/equalizer
     linkText: Tune your sound
-  - icon: 📥
-    title: Downloads that arrive correct
+  - title: Downloads that arrive correct
     details: Files land tagged with exactly what the player showed you — right artist, right album, right artwork — and play in any other music app.
     link: /guide/downloads
     linkText: Downloads and offline
-  - icon: 🔗
-    title: Paste a Spotify link
+  - title: Paste a Spotify link
     details: Drop any playlist, album or track URL into the search bar. Every song is matched against the sources and saved as a playlist you own.
     link: /guide/spotify-import
     linkText: Import a playlist
-  - icon: 📱
-    title: Same brain, two bodies
+  - title: Same brain, two bodies
     details: The Windows app and the Android app share one backend and one interface. A fix to search or downloads lands on your PC and your phone at the same time.
     link: /reference/architecture
     linkText: See how it fits together
-  - icon: 🔒
-    title: Stays on your device
+  - title: Stays on your device
     details: No server, no account, no telemetry. Your playlists, likes and history are written to your own disk and never leave it.
     link: /guide/introduction
     linkText: What this is
