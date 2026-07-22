@@ -17,6 +17,7 @@ import android.os.Looper
 import android.provider.Settings
 import android.util.Log
 import android.view.View
+import android.webkit.ConsoleMessage
 import android.webkit.JavascriptInterface
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
@@ -136,6 +137,22 @@ class MainActivity : AppCompatActivity() {
         // nothing. Forwarding it to the system picker is what lets the user
         // choose a custom playlist cover.
         webView.webChromeClient = object : WebChromeClient() {
+            // Forward the React app's console to logcat. Without this the entire
+            // JS side — stream resolution, playback errors, the auto-skip
+            // decisions — logs to a console nothing can read, which is the whole
+            // reason on-device issues were undiagnosable. `adb logcat -s FixJS`
+            // now shows exactly what the player is doing.
+            override fun onConsoleMessage(m: ConsoleMessage): Boolean {
+                val where = "${m.sourceId()?.substringAfterLast('/') ?: "?"}:${m.lineNumber()}"
+                val line = "[$where] ${m.message()}"
+                when (m.messageLevel()) {
+                    ConsoleMessage.MessageLevel.ERROR -> Log.e("FixJS", line)
+                    ConsoleMessage.MessageLevel.WARNING -> Log.w("FixJS", line)
+                    else -> Log.i("FixJS", line)
+                }
+                return true
+            }
+
             override fun onShowFileChooser(
                 view: WebView?,
                 callback: ValueCallback<Array<Uri>>?,

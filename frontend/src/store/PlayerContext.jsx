@@ -295,6 +295,15 @@ export function PlayerProvider({ children }) {
       // Cross-source fallback: the current source failed to load (dead / DRM /
       // geo-blocked). If this track has another source, try it before erroring.
       const att = playAttemptRef.current;
+      // Diagnostic: this is the moment a track starts to fail. Before this line
+      // a skip left no trace at all — the auto-skip branch in giveUp() returns
+      // before any log. Surfaced to logcat via the WebView console bridge, so a
+      // song that silently skips now says which source died and why.
+      console.warn(
+        `[play] error on "${currentTrackRef.current?.title || '?'}" ` +
+        `src=${att?.sources?.[att.idx]?.source || '?'} ` +
+        `code=${audio.error?.code || '?'} net=${navigator.onLine}`
+      );
       if (att && att.idx + 1 < att.sources.length) {
         const failed = att.sources[att.idx];
         // A downloaded file that 404s (deleted/moved) shouldn't dead-end: fall
@@ -347,6 +356,11 @@ export function PlayerProvider({ children }) {
       // (non-offline) tracks, so offline files never trigger this.
       if (att && autoSkipRef.current < 5) {
         autoSkipRef.current += 1;
+        console.warn(
+          `[play] giving up, auto-skip #${autoSkipRef.current} — ` +
+          `tried [${att.sources.map(s => s.source).join(', ')}], ` +
+          `searched=${att.searched}`
+        );
         setIsLoading(false);
         setIsPlaying(false);
         playNextRef.current?.();
