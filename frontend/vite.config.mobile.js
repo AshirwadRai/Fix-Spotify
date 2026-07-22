@@ -18,13 +18,29 @@ function renameHtmlEntry() {
   }
 }
 
+// In DEV, Vite serves index.html (the DESKTOP entry) at '/'. The on-device
+// debug WebView needs the MOBILE entry, so rewrite '/' to index.mobile.html.
+// Without this the phone loads the desktop app, which never sets the Android
+// API token and so gets 403 FORBIDDEN on every /api call.
+function serveMobileEntry() {
+  return {
+    name: 'serve-mobile-entry',
+    configureServer(server) {
+      server.middlewares.use((req, _res, next) => {
+        if (req.url === '/' || req.url === '/index.html') req.url = '/index.mobile.html'
+        next()
+      })
+    },
+  }
+}
+
 // Build config for the Android app.
 //
 // Output goes to dist-mobile/, which mobile/android/app/build.gradle copies into
 // the APK's assets. The Flask backend then serves that folder as the SPA root,
 // so the page and the API share an origin (see mobile/python/mobile_server.py).
 export default defineConfig({
-  plugins: [react(), tailwindcss(), renameHtmlEntry()],
+  plugins: [react(), tailwindcss(), renameHtmlEntry(), serveMobileEntry()],
 
   // Assets are served from the server root (http://127.0.0.1:8765/), so absolute
   // '/assets/...' paths are correct.

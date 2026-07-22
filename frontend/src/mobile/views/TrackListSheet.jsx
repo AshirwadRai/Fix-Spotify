@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useMemo } from 'react';
-import { ChevronLeft, Play, Pause, Shuffle, Heart, Music2, Trash2, Pencil, WifiOff, Camera, ArrowDownCircle, MoreVertical } from 'lucide-react';
+import { ChevronLeft, Play, Pause, Shuffle, Heart, Music2, Trash2, Pencil, WifiOff, Camera, ArrowDownCircle, MoreVertical, SquareCheck, Square, X, ListChecks } from 'lucide-react';
 import { usePlayer } from '../../store/PlayerContext';
 import { useDownloads } from '../../store/DownloadsContext';
 import { TrackItem } from '../components/TrackItem';
@@ -7,8 +7,9 @@ import { PlaylistCover } from '../../components/PlaylistCover';
 import { usePlayFrom } from '../usePlayFrom';
 import { deletePlaylist, renamePlaylist, setPlaylistImage, usePlaylists } from '../usePlaylists';
 import { useLikedSongs } from '../../utils/likes';
-import { useOfflineTracks } from '../../utils/downloads';
-import { sameTrack, getBestArtworkUrl } from '../../utils/tracks';
+import { useOfflineTracks, deleteDownload } from '../../utils/downloads';
+import { sameTrack, getBestArtworkUrl, getTrackId } from '../../utils/tracks';
+import { api } from '../../api';
 import { useDominantColor } from '../../utils/useDominantColor';
 import { toast } from '../../utils/toast';
 import { ConfirmDialog } from '../components/ConfirmDialog';
@@ -68,6 +69,32 @@ export function TrackListSheet({ view, onClose, onMenu }) {
   const [flagMenu, setFlagMenu] = useState(false);   // ⚑ → edit / delete
   const [confirmDelete, setConfirmDelete] = useState(false);
 
+  // ── Multi-select delete (Downloads only) ────────────────────────────────
+  // Hold a downloaded song to enter selection; tap others to add; a header bar
+  // shows the count and deletes the lot (file + registry) after one confirm.
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [confirmBulk, setConfirmBulk] = useState(false);
+  const holdTimer = useRef(null);
+
+  const toggleSelect = useCallback((id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const enterSelect = useCallback((id) => {
+    setSelectMode(true);
+    setSelectedIds(new Set([id]));
+  }, []);
+
+  const exitSelect = useCallback(() => {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  }, []);
+
   // ── Live tracks, NOT the caller's snapshot ──────────────────────────────
   // `view.tracks` is frozen at the moment the row was tapped, so anything that
   // changed the underlying list while this sheet was open — deleting a download,
@@ -89,6 +116,25 @@ export function TrackListSheet({ view, onClose, onMenu }) {
     }
     return view?.tracks || [];
   }, [view, likedLive, offlineMap, playlistsLive]);
+
+  const allSelected = tracks.length > 0 && selectedIds.size === tracks.length;
+  const toggleSelectAll = useCallback(() => {
+    setSelectedIds((prev) =>
+      prev.size === tracks.length ? new Set() : new Set(tracks.map((t) => getTrackId(t)))
+    );
+  }, [tracks]);
+
+  const deleteSelected = useCallback(async () => {
+    // Delete each selected download from disk AND the registry. `tracks` is the
+    // live offline list, so removed entries drop out on the next render.
+    const toDelete = tracks.filter((t) => selectedIds.has(getTrackId(t)));
+    for (const t of toDelete) {
+      try { await deleteDownload(t, api); } catch { /* keep going */ }
+    }
+    toast(`Deleted ${toDelete.length} song${toDelete.length > 1 ? 's' : ''}`);
+    setConfirmBulk(false);
+    exitSelect();
+  }, [tracks, selectedIds, exitSelect, setConfirmBulk]);
 
   // Scroll-linked hero collapse — same treatment as the artist/album sheet.
   const HERO_FADE_PX = 180;
@@ -144,6 +190,38 @@ export function TrackListSheet({ view, onClose, onMenu }) {
 
   return (
     <div className="absolute inset-0 z-20 bg-spotify-base flex flex-col">
+      {/* Selection bar — replaces the header while picking downloads to delete. */}
+      {selectMode && (
+        <div className="absolute inset-x-0 top-0 z-30 pt-safe bg-spotify-base/95 backdrop-blur">
+          <div className="flex items-center justify-between h-14 px-3">
+            <button type="button" onClick={exitSelect} aria-label="Cancel" className="tap p-2">
+              <X size={24} />
+            </button>
+            <div className="flex items-center gap-2">
+              <span className="text-[15px] font-semibold">{selectedIds.size} selected</span>
+              <button
+                type="button"
+                onClick={toggleSelectAll}
+                className="tap flex items-center gap-1 rounded-full bg-white/10 px-3 py-1 text-[12.5px] font-semibold"
+                aria-label={allSelected ? 'Deselect all' : 'Select all'}
+              >
+                <ListChecks size={15} />
+                {allSelected ? 'None' : 'All'}
+              </button>
+            </div>
+            <button
+              type="button"
+              disabled={selectedIds.size === 0}
+              onClick={() => setConfirmBulk(true)}
+              className="tap p-2 disabled:opacity-40 text-red-400"
+              aria-label="Delete selected"
+            >
+              <Trash2 size={22} />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Sticky header — transparent over the hero, turning solid as it scrolls
           away, with a compact title taking over from the hero's. */}
       <div
@@ -368,7 +446,52 @@ export function TrackListSheet({ view, onClose, onMenu }) {
         })}
 
         {/* Tracks */}
-        {tracks.map((t, i) => (
+        {tracks.map((t, i) => {
+          // On the Downloads screen a track is selectable: hold to start a
+          // selection, then tap to add/remove. A custom row (checkbox +
+          // artwork + title) replaces TrackItem while selecting.
+          if (isOffline) {
+            const id = getTrackId(t);
+            const checked = selectedIds.has(id);
+            const rowHold = () => {
+              holdTimer.current = setTimeout(() => enterSelect(id), 450);
+            };
+            const rowRelease = () => clearTimeout(holdTimer.current);
+            if (selectMode) {
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => toggleSelect(id)}
+                  className="tap flex w-full items-center gap-3 px-4 py-2 text-left"
+                >
+                  {checked
+                    ? <SquareCheck size={22} className="shrink-0 text-spotify-essential-bright-accent" />
+                    : <Square size={22} className="shrink-0 text-spotify-text-subdued" />}
+                  <div className="h-11 w-11 shrink-0 overflow-hidden rounded bg-white/10">
+                    {getBestArtworkUrl(t) ? <img src={getBestArtworkUrl(t)} alt="" className="h-full w-full object-cover" /> : null}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[14px]">{t.title}</p>
+                    <p className="truncate text-[12px] text-spotify-text-subdued">{t.artist}</p>
+                  </div>
+                </button>
+              );
+            }
+            return (
+              <div key={id} onTouchStart={rowHold} onTouchEnd={rowRelease} onTouchMove={rowRelease}>
+                <TrackItem
+                  track={t}
+                  index={i}
+                  currentTrack={currentTrack}
+                  isPlaying={isPlaying}
+                  onPlay={() => playFrom(tracks, i)}
+                  onMenu={(tk) => onMenu(tk, null)}
+                />
+              </div>
+            );
+          }
+          return (
           <TrackItem
             key={`${t.title}-${t.artist}-${i}`}
             track={t}
@@ -381,7 +504,8 @@ export function TrackListSheet({ view, onClose, onMenu }) {
             // it's being shown.
             onMenu={(t) => onMenu(t, isPlaylist ? { playlistId: view.id, playlistName: view.title } : null)}
           />
-        ))}
+          );
+        })}
 
         {tracks.length === 0 && (
           <p className="text-center text-spotify-text-subdued text-sm mt-16 px-10">
@@ -409,6 +533,16 @@ export function TrackListSheet({ view, onClose, onMenu }) {
             toast(`Deleted “${view.title}”`);
             onClose();
           }}
+        />
+      )}
+
+      {confirmBulk && (
+        <ConfirmDialog
+          title={`Delete ${selectedIds.size} song${selectedIds.size > 1 ? 's' : ''}?`}
+          message="They'll be removed from this device — both from your library and the download folder. This can't be undone."
+          confirmLabel="Delete"
+          onCancel={() => setConfirmBulk(false)}
+          onConfirm={deleteSelected}
         />
       )}
     </div>

@@ -17,7 +17,8 @@ import { LibraryTab } from './views/LibraryTab';
 import { SettingsTab } from './views/SettingsTab';
 import { CollectionSheet } from './views/CollectionSheet';
 import { TrackListSheet } from './views/TrackListSheet';
-import { reportPlayback, registerTransport, registerUpdateHandlers, checkForUpdate, isAndroid } from './androidBridge';
+import { reportPlayback, registerTransport } from './androidBridge';
+import { useUpdate, checkUpdate } from './updateStore';
 import { ArtistPickerSheet } from './components/ArtistPickerSheet';
 import { usePlayFrom } from './usePlayFrom';
 import { getBestArtworkUrl, splitArtists, sameTrack } from '../utils/tracks';
@@ -35,18 +36,14 @@ function Shell() {
   const [list, setList] = useState(null);                     // local liked/playlist/offline
   const [online, setOnline] = useState(navigator.onLine);
   const [justReconnected, setJustReconnected] = useState(false);
-  const [update, setUpdate] = useState(null);              // { version } when newer exists
   const [updateDismissed, setUpdateDismissed] = useState(false);
-  // One silent update check at launch. Available → a dismissible popup; after
+  // Update flow comes from the shared store, so a download started in Settings
+  // and its progress survive navigating anywhere in the app.
+  const updateState = useUpdate();
+  const update = updateState.info?.available ? updateState.info : null;
+  // One silent check at launch. Available → a dismissible popup; after
   // dismissing, the Settings gear keeps a green dot so it stays findable.
-  useEffect(() => {
-    if (!isAndroid()) return undefined;
-    const cleanup = registerUpdateHandlers({
-      onResult: (res) => { if (res?.available) setUpdate(res); },
-    });
-    checkForUpdate();
-    return cleanup;
-  }, []);
+  useEffect(() => { checkUpdate(); }, []);
 
   const {
     currentTrack, isPlaying, progress, duration,

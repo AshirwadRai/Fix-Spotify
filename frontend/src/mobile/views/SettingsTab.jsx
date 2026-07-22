@@ -16,9 +16,10 @@ import { api } from '../../api';
 import { toast } from '../../utils/toast';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import {
-  isAndroid, getAppVersion, checkForUpdate, installUpdate, registerUpdateHandlers,
+  isAndroid, getAppVersion,
   requestStorageAccess, pickDownloadFolder,
 } from '../androidBridge';
+import { useUpdate, checkUpdate, startUpdateInstall } from '../updateStore';
 
 // The hosted documentation. Kept separate from "Tips & shortcuts" on purpose:
 // tips are three-second gestures you read in place, the docs are a reference you
@@ -62,23 +63,26 @@ const QUALITIES = [
   { value: 320, label: 'Very High', hint: '320 kbps — best quality' },
 ];
 
-function Section({ title, subtitle, children, inset = false }) {
+// Grouped-card layout (iOS/Spotify style): a small uppercase label sits above a
+// single rounded card that holds the rows, floating on the dark base. No
+// full-width dividers between sections — the gaps do that work, so the screen
+// reads as calm, scannable groups rather than one long ruled list. `inset` is
+// kept in the signature for callers but no longer changes anything (every group
+// is carded now).
+function Section({ title, subtitle, children }) {
   return (
-    <section className="px-4 py-5 border-b border-white/[0.07]">
-      <h2 className="text-[17px] font-extrabold tracking-tight">{title}</h2>
-      {subtitle && (
-        <p className="text-[12.5px] text-spotify-text-subdued mt-0.5">{subtitle}</p>
+    <section className="px-4 pt-5">
+      {title && (
+        <h2 className="mb-2 px-1 text-[12px] font-bold uppercase tracking-[0.1em] text-spotify-text-subdued">
+          {title}
+        </h2>
       )}
-      {/* inset === true nests the child options inside a subtle card so the
-          section heading reads as the parent and the rows as its children —
-          the main/child hierarchy the flat list was missing. */}
-      <div
-        className={
-          inset
-            ? 'mt-3 rounded-xl bg-white/[0.035] px-3 divide-y divide-white/[0.05]'
-            : 'mt-3'
-        }
-      >
+      {subtitle && (
+        <p className="mb-2 -mt-1 px-1 text-[12px] leading-snug text-spotify-text-subdued/70">
+          {subtitle}
+        </p>
+      )}
+      <div className="rounded-2xl bg-white/[0.05] px-3.5 divide-y divide-white/[0.055] shadow-[0_1px_0_rgba(255,255,255,0.03)_inset]">
         {children}
       </div>
     </section>
@@ -332,38 +336,33 @@ export function SettingsTab({ onClose }) {
             track rows advertise about it. Bitrate used to be its own top-level
             section and the two badges were stranded under "Playback", which had
             nothing to do with either. */}
-        <Section title="Media quality" subtitle="Streaming bitrate and what's shown on tracks" inset>
+        <Section title="Media quality">
           <PanelRow label="Sound quality" value={qualityLabel} onClick={() => setPanel('quality')} />
           <Toggle
             label="Source badge"
-            hint="Show where each track streams from (JioSaavn, SoundCloud, YouTube)"
             checked={!!settings.showSourceBadge}
             onChange={(v) => writeAppSetting('showSourceBadge', v)}
           />
           <Toggle
             label="Quality badge"
-            hint="Show the live bitrate (e.g. 320 kbps) on the now-playing screen"
             checked={!!settings.showQualityBadge}
             onChange={(v) => writeAppSetting('showQualityBadge', v)}
           />
         </Section>
 
-        {/* Sound — everything that shapes the audio itself. */}
-        <Section title="Sound" subtitle="Equalizer, crossfade and levels" inset>
+        <Section title="Sound">
           <PanelRow label="Equalizer" value={eqLabel} onClick={() => setPanel('equalizer')} />
           <PanelRow label="Crossfade" value={crossfadeLabel} onClick={() => setPanel('crossfade')} />
           <Toggle
             label="Normalize volume"
-            hint="Even out loud and quiet tracks so you're not reaching for the dial"
             checked={!!settings.normalizeVolume}
             onChange={(v) => writeAppSetting('normalizeVolume', v)}
           />
         </Section>
 
-        <Section title="Playback" inset>
+        <Section title="Playback">
           <Toggle
             label="Autoplay"
-            hint="When the queue ends, keep playing songs similar to what you were listening to"
             checked={!!settings.autoplay}
             onChange={(v) => writeAppSetting('autoplay', v)}
           />
@@ -375,13 +374,9 @@ export function SettingsTab({ onClose }) {
 
         {/* About & help — grouped near the bottom where help-type items
             conventionally live. */}
-        <Section title="About & help" inset>
+        <Section title="About & help">
           <PanelRow label="Tips & shortcuts" onClick={() => setPanel('tips')} />
-          <LinkRow
-            label="Documentation"
-            hint="Full guide — every feature, setting and fix, in the browser"
-            href={DOCS_URL}
-          />
+          <LinkRow label="Documentation" href={DOCS_URL} />
         </Section>
 
         <UpdateSection />
@@ -812,30 +807,16 @@ function YouTubeExperimentalToggle() {
 }
 
 function UpdateSection() {
-  const [state, setState] = useState('idle');   // idle | checking | current | found | downloading | failed
-  const [info, setInfo] = useState(null);
-  const [pct, setPct] = useState(0);
-
+  // State lives in a module-level store (updateStore) so an in-flight download
+  // survives this screen unmounting — scrolling to Home mid-update no longer
+  // orphans the native APK fetch and "fails" the update.
+  const { phase: state, info, pct } = useUpdate();
   const version = getAppVersion();
 
-  useEffect(() => registerUpdateHandlers({
-    onResult: (res) => {
-      setInfo(res);
-      setState(res?.available ? 'found' : 'current');
-    },
-    onProgress: (p) => {
-      if (p < 0) { setState('failed'); return; }
-      setPct(p);
-    },
-  }), []);
-
-  // Check once on open — silent when already current, so it never nags.
-  useEffect(() => {
-    if (isAndroid()) {
-      setState('checking');
-      checkForUpdate();
-    }
-  }, []);
+  // Check once on open — silent when already current, so it never nags. The
+  // store ignores this while a download is in flight, so returning to Settings
+  // doesn't interrupt an install already running.
+  useEffect(() => { checkUpdate(); }, []);
 
   if (!isAndroid()) return null;
 
@@ -874,7 +855,7 @@ function UpdateSection() {
           {state === 'found' && (
             <button
               type="button"
-              onClick={() => { setState('downloading'); setPct(0); installUpdate(); }}
+              onClick={() => startUpdateInstall()}
               className="mt-3 px-5 py-2 rounded-full bg-spotify-essential-bright-accent text-black text-[13px] font-semibold"
             >
               Download &amp; install
@@ -885,7 +866,7 @@ function UpdateSection() {
             <button
               type="button"
               disabled={state === 'checking'}
-              onClick={() => { setState('checking'); checkForUpdate(); }}
+              onClick={() => checkUpdate()}
               className="tap mt-3 inline-flex items-center gap-2 rounded-full bg-white/10 px-5 py-2 text-[13px] font-semibold disabled:opacity-70"
             >
               {/* The icon rolls inside the button while checking — self-contained,
