@@ -50,10 +50,18 @@ export default defineConfig({
 
   server: {
     port: 5174,
+    // Bind all interfaces so the on-device WebView (via `adb reverse tcp:5174`)
+    // can reach the dev server, not just a desktop browser on localhost.
+    host: true,
     proxy: {
-      // `npm run dev:mobile` in a desktop browser, against the mobile backend
-      // running via `python mobile/python/mobile_server.py`.
+      // Two consumers, one proxy:
+      //  · `npm run dev:mobile` in a desktop browser against a locally-run
+      //    mobile backend, and
+      //  · the DEBUG Android build hot-reloading (MainActivity loads this dev
+      //    server; /api and /health are forwarded to the PHONE's Flask via
+      //    `adb forward tcp:8765 tcp:8765`).
       '/api': { target: 'http://127.0.0.1:8765', changeOrigin: true },
+      '/health': { target: 'http://127.0.0.1:8765', changeOrigin: true },
     },
   },
 })

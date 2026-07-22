@@ -30,6 +30,8 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
 import kotlin.concurrent.thread
 
 /**
@@ -236,10 +238,45 @@ class MainActivity : AppCompatActivity() {
     /** Poll /health, then load the SPA. A cold Python boot takes a few seconds. */
     private fun waitForBackendThenLoad() {
         if (BackendService.serverReady.get()) {
-            webView.loadUrl(BackendService.BASE_URL)
+            chooseStartUrlThenLoad()
             return
         }
         handler.postDelayed({ waitForBackendThenLoad() }, 250)
+    }
+
+    /**
+     * DEBUG builds only: if a Vite dev server is reachable at localhost:5173
+     * (set up with `adb reverse tcp:5173 tcp:5173`), load the live frontend from
+     * it so React edits hot-reload on the device in ~1s — no APK rebuild. Vite
+     * proxies /api and /health to the phone's own Flask (via `adb forward
+     * tcp:8765 tcp:8765`), so the backend, token and <audio> all still work.
+     * If the dev server isn't up, fall back to the bundled SPA, so the debug
+     * app is fully usable standalone. Release builds never touch this path.
+     */
+    private fun chooseStartUrlThenLoad() {
+        if (!BuildConfig.DEBUG) {
+            webView.loadUrl(BackendService.BASE_URL)
+            return
+        }
+        Thread {
+            val devReachable = try {
+                (URL("$DEV_SERVER_URL/").openConnection() as HttpURLConnection).run {
+                    connectTimeout = 600
+                    readTimeout = 600
+                    requestMethod = "HEAD"
+                    val ok = responseCode in 200..399
+                    disconnect()
+                    ok
+                }
+            } catch (e: Exception) {
+                false
+            }
+            val target = if (devReachable) DEV_SERVER_URL else BackendService.BASE_URL
+            runOnUiThread {
+                Log.i("FixDev", "loading ${if (devReachable) "Vite dev server" else "bundled SPA"}: $target")
+                webView.loadUrl(target)
+            }
+        }.start()
     }
 
     // ── JS ⇄ native bridge ────────────────────────────────────────────────────
@@ -566,5 +603,8 @@ class MainActivity : AppCompatActivity() {
         const val TAG = "FixSpotify"
         const val REQ_NOTIFICATIONS = 1001
         const val REQ_STORAGE = 1002
+        // Vite dev server, reached from the device via `adb reverse tcp:5174`.
+        // Only consulted in DEBUG builds (see chooseStartUrlThenLoad).
+        const val DEV_SERVER_URL = "http://localhost:5174"
     }
 }

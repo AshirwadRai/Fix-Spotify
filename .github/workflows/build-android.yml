@@ -14,6 +14,11 @@ on:
         description: "Version to stamp, e.g. 1.3.0-rc1. Must be HIGHER than the version already on the phone, or Android refuses to install over it (a downgrade needs an uninstall, which wipes the library)."
         required: false
         default: "1.3.0-rc1"
+      debug:
+        description: "Build a DEBUG apk (BuildConfig.DEBUG=true, .debug applicationId — installs ALONGSIDE the real app). Enables the Vite hot-reload dev loop."
+        type: boolean
+        required: false
+        default: false
 
 concurrency:
   group: android-${{ github.ref }}
@@ -106,10 +111,11 @@ jobs:
       # already on a later release — Android refuses to install those over the top,
       # so the only way in was an uninstall, which wipes the user's library. An
       # explicit input keeps test builds installable.
-      - name: Build release APK
+      - name: Build APK
         working-directory: mobile/android
         env:
           INPUT_VERSION: ${{ inputs.version }}
+          DEBUG_BUILD: ${{ inputs.debug }}
         run: |
           VERSION_ARG=""
           case "$GITHUB_REF_NAME" in
@@ -118,16 +124,28 @@ jobs:
           if [ -n "$INPUT_VERSION" ]; then
             VERSION_ARG="-PappVersionName=$INPUT_VERSION"
           fi
-          echo "Building with ${VERSION_ARG:-(local fallback version)}"
-          ./gradlew assembleRelease --no-daemon --stacktrace $VERSION_ARG
+          if [ "$DEBUG_BUILD" = "true" ]; then
+            echo "Building DEBUG apk with ${VERSION_ARG:-(local fallback version)}"
+            ./gradlew assembleDebug --no-daemon --stacktrace $VERSION_ARG
+          else
+            echo "Building RELEASE apk with ${VERSION_ARG:-(local fallback version)}"
+            ./gradlew assembleRelease --no-daemon --stacktrace $VERSION_ARG
+          fi
 
       - name: Stage APK
         id: stage
+        env:
+          DEBUG_BUILD: ${{ inputs.debug }}
         run: |
-          SRC=mobile/android/app/build/outputs/apk/release/app-release.apk
-          DEST="Fix_Spotify_${GITHUB_REF_NAME}.apk"
-          # Fall back to a stable name on workflow_dispatch (ref is a branch).
-          case "$GITHUB_REF_NAME" in v*) ;; *) DEST="Fix_Spotify.apk" ;; esac
+          if [ "$DEBUG_BUILD" = "true" ]; then
+            SRC=mobile/android/app/build/outputs/apk/debug/app-debug.apk
+            DEST="Fix_Spotify-debug.apk"
+          else
+            SRC=mobile/android/app/build/outputs/apk/release/app-release.apk
+            DEST="Fix_Spotify_${GITHUB_REF_NAME}.apk"
+            # Fall back to a stable name on workflow_dispatch (ref is a branch).
+            case "$GITHUB_REF_NAME" in v*) ;; *) DEST="Fix_Spotify.apk" ;; esac
+          fi
           cp "$SRC" "$DEST"
           echo "apk=$DEST" >> "$GITHUB_OUTPUT"
 
