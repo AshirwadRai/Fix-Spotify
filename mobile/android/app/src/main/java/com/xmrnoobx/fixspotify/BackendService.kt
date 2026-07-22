@@ -325,21 +325,27 @@ class BackendService : Service() {
      *
      * Assets inside an APK are not real files, so Flask's send_from_directory
      * cannot read them — they have to exist on the filesystem first. Re-extracted
-     * whenever versionCode changes, so an app update ships a fresh UI.
+     * whenever the app was actually reinstalled, so an update ships a fresh UI.
+     *
+     * Keyed on lastUpdateTime, not versionCode: two different builds CAN carry
+     * the same versionCode (a workflow_dispatch test build's version is typed by
+     * hand, independent of the code it was built from, and a hotfix retag can
+     * reuse a version number too) — this happened once and left a real install
+     * silently stuck serving a stale bundle despite reinstalling. lastUpdateTime
+     * is stamped by PackageManager itself at install time, so it changes on
+     * every genuine install/update no matter what version string the build
+     * carries, and is stable across the app just being relaunched.
      */
     private fun extractWebAssets(): File {
         val webDir = File(filesDir, "web")
         val stamp = File(webDir, ".version")
-        val version = packageManager.getPackageInfo(packageName, 0).let {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) it.longVersionCode
-            else @Suppress("DEPRECATION") it.versionCode.toLong()
-        }.toString()
+        val version = packageManager.getPackageInfo(packageName, 0).lastUpdateTime.toString()
 
         if (stamp.exists() && stamp.readText() == version) {
             return webDir
         }
 
-        Log.i(TAG, "extracting web assets (version $version)")
+        Log.i(TAG, "extracting web assets (installed $version)")
         webDir.deleteRecursively()
         webDir.mkdirs()
         copyAssetDir("web", webDir)
