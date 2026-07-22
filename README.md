@@ -239,6 +239,33 @@ cutting a public release — the preferred way to test a change before tagging i
 workflow takes a `version` input for this. It must be higher than the version already installed on
 the test device, or Android will refuse to install over the top of it.
 
+### Android: live hot-reload against a real device
+
+The Android `workflow_dispatch` also takes a `debug` boolean. Checking it builds a **debug** APK
+(`BuildConfig.DEBUG = true`, `.debug` application ID) instead of a release one — it installs
+*alongside* the real app, so your library is never at risk.
+
+A debug build's WebView tries a Vite dev server before falling back to its own bundle
+(`MainActivity.chooseStartUrlThenLoad`), which turns a frontend edit into something visible on the
+phone in about a second instead of a full CI round-trip:
+
+```bash
+# One-time per session, phone connected over USB with debugging enabled:
+adb reverse tcp:5174 tcp:5174   # phone -> your Vite dev server
+adb forward tcp:8765 tcp:8765   # your Vite proxy -> the phone's own Flask backend
+
+cd frontend
+npm run dev:mobile
+```
+
+Reopen the `.debug` app; `adb logcat -s FixDev` confirms whether it loaded the dev server or fell
+back to its bundle. Editing any file under `frontend/src/` now pushes to the device immediately —
+no rebuild, no reinstall. This is the intended day-to-day loop for UI work: iterate here, and only
+cut a real (non-debug) build once a change is confirmed on-device.
+
+Release builds never reference the dev server at all — the whole path is compiled out when
+`BuildConfig.DEBUG` is false.
+
 ---
 
 ## Testing

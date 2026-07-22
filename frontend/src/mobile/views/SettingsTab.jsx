@@ -243,7 +243,7 @@ export function SettingsTab({ onClose }) {
   if (panel === 'quality') {
     return (
       <Panel title="Sound quality" onBack={() => setPanel(null)}>
-        <Section title="Streaming bitrate" subtitle="Higher sounds better and uses more data" inset>
+        <Section title="Streaming bitrate" subtitle="Higher sounds better and uses more data">
           {QUALITIES.map((q) => (
             <Choice
               key={q.value}
@@ -269,7 +269,7 @@ export function SettingsTab({ onClose }) {
   if (panel === 'crossfade') {
     return (
       <Panel title="Crossfade" onBack={() => setPanel(null)}>
-        <Section title="Overlap" subtitle="Let one song melt into the next instead of stopping dead" inset>
+        <Section title="Overlap" subtitle="Let one song melt into the next instead of stopping dead">
           <div className="flex items-center gap-3 py-4">
             <span className="w-7 text-[11px] text-spotify-text-subdued">Off</span>
             <input
@@ -608,7 +608,7 @@ function EqualizerPanel({ settings }) {
 
   return (
     <>
-      <Section title="Equalizer" subtitle="Shape the sound across eight frequency bands" inset>
+      <Section title="Equalizer" subtitle="Shape the sound across eight frequency bands">
         <Toggle
           label="Enable equalizer"
           checked={enabled}
@@ -730,7 +730,7 @@ const ALWAYS_ON = [
 
 function SourcesSection() {
   return (
-    <Section title="Sources" subtitle="Where your music is streamed from" inset>
+    <Section title="Sources" subtitle="Where your music is streamed from">
       {/* Core sources read as switches that are ON and can't be turned off,
           rather than a text label — so the row is the same shape as YouTube's
           below it instead of looking like a different kind of thing. The switch

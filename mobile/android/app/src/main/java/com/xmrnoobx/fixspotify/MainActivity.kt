@@ -245,8 +245,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * DEBUG builds only: if a Vite dev server is reachable at localhost:5173
-     * (set up with `adb reverse tcp:5173 tcp:5173`), load the live frontend from
+     * DEBUG builds only: if a Vite dev server is reachable at localhost:5174
+     * (set up with `adb reverse tcp:5174 tcp:5174`), load the live frontend from
      * it so React edits hot-reload on the device in ~1s — no APK rebuild. Vite
      * proxies /api and /health to the phone's own Flask (via `adb forward
      * tcp:8765 tcp:8765`), so the backend, token and <audio> all still work.
@@ -258,7 +258,7 @@ class MainActivity : AppCompatActivity() {
             webView.loadUrl(BackendService.BASE_URL)
             return
         }
-        Thread {
+        thread(isDaemon = true) {
             val devReachable = try {
                 (URL("$DEV_SERVER_URL/").openConnection() as HttpURLConnection).run {
                     connectTimeout = 600
@@ -276,7 +276,7 @@ class MainActivity : AppCompatActivity() {
                 Log.i("FixDev", "loading ${if (devReachable) "Vite dev server" else "bundled SPA"}: $target")
                 webView.loadUrl(target)
             }
-        }.start()
+        }
     }
 
     // ── JS ⇄ native bridge ────────────────────────────────────────────────────

@@ -29,7 +29,7 @@ This is the single most common way people lose their library, and it isn't recov
 
 ## Staying up to date
 
-**Settings → Updates** checks for a new version. On Android the app can install the update in place, which means it follows the rule above for you.
+**Settings → Updates** checks for a new version. On Android the app can install the update in place, which means it follows the rule above for you. Once a download starts you can leave the screen — browse Home, play something, whatever — the install keeps going and picks up right where it was when you come back.
 
 New releases are also announced on the **[Releases](/releases)** page.
 
