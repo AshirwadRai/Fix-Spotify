@@ -362,11 +362,18 @@ class BackendService : Service() {
     private fun setupMediaSession() {
         mediaSession = MediaSessionCompat(this, "FixSpotify").apply {
             setCallback(object : MediaSessionCompat.Callback() {
-                override fun onPlay() = dispatchTransport("play")
-                override fun onPause() = dispatchTransport("pause")
-                override fun onSkipToNext() = dispatchTransport("next")
-                override fun onSkipToPrevious() = dispatchTransport("previous")
-                override fun onStop() = dispatchTransport("pause")
+                // Bluetooth earbuds deliver AVRCP commands straight to these
+                // callbacks (NOT onMediaButtonEvent), so this is where an
+                // unreliable single-tap actually lands. Logging which callback
+                // fires and what state we were in tells us whether a toggle is
+                // resolving to the wrong branch because our PlaybackState was
+                // stale — the real cause of "tap once does nothing, tap again
+                // works". `adb logcat -s BackendService | grep MEDIACB`.
+                override fun onPlay() { Log.i(TAG, "MEDIACB onPlay (wasPlaying=$isPlaying)"); dispatchTransport("play") }
+                override fun onPause() { Log.i(TAG, "MEDIACB onPause (wasPlaying=$isPlaying)"); dispatchTransport("pause") }
+                override fun onSkipToNext() { Log.i(TAG, "MEDIACB onSkipToNext"); dispatchTransport("next") }
+                override fun onSkipToPrevious() { Log.i(TAG, "MEDIACB onSkipToPrevious"); dispatchTransport("previous") }
+                override fun onStop() { Log.i(TAG, "MEDIACB onStop"); dispatchTransport("pause") }
                 override fun onSeekTo(pos: Long) {
                     lastPositionMs = pos
                     transportListener?.onCommand("seek:$pos")

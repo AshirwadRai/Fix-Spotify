@@ -53,7 +53,14 @@ function fileToCoverDataUrl(file) {
 
 export function TrackListSheet({ view, onClose, onMenu }) {
   const { currentTrack, isPlaying, playCollection, shuffle, toggleShuffle, togglePlay } = usePlayer();
-  const { downloadMany } = useDownloads();
+  const { downloadMany, tasks } = useDownloads();
+
+  // Songs still downloading, newest first — shown only on the Downloads screen,
+  // above the finished tracks. Before this, a queued download was invisible
+  // until it completed and popped into the list, which read as "nothing
+  // happened". `downloading` shows a live bar; `pending`/`queued` wait their turn.
+  const activeDownloads = (view?.kind === 'offline' ? (tasks || []) : [])
+    .filter((t) => ['pending', 'queued', 'downloading'].includes(t.status));
   const playFrom = usePlayFrom();
   const [renaming, setRenaming] = useState(false);
   const [name, setName] = useState(view?.title || '');
@@ -328,6 +335,37 @@ export function TrackListSheet({ view, onClose, onMenu }) {
             )}
           </button>
         </div>
+
+        {/* Active downloads — dimmed rows with a live progress bar, above the
+            finished tracks. The whole row sits at reduced opacity ("blurred")
+            so it reads as not-yet-ready; the queued ones show a thin
+            indeterminate hint instead of a fill. */}
+        {activeDownloads.map((t) => {
+          const info = t.track_info || {};
+          const pct = Math.max(0, Math.min(100, Math.round(t.progress || 0)));
+          const isDownloading = t.status === 'downloading';
+          return (
+            <div key={t.id} className="flex items-center gap-3 px-4 py-2 opacity-60">
+              <div className="h-11 w-11 shrink-0 rounded bg-white/10 overflow-hidden">
+                {getBestArtworkUrl(info) ? (
+                  <img src={getBestArtworkUrl(info)} alt="" className="h-full w-full object-cover blur-[1px]" />
+                ) : null}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[14px]">{info.title || 'Downloading…'}</p>
+                <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-white/15">
+                  <div
+                    className={`h-full rounded-full bg-spotify-essential-bright-accent ${isDownloading ? '' : 'animate-pulse w-1/3'}`}
+                    style={isDownloading ? { width: `${pct}%` } : undefined}
+                  />
+                </div>
+              </div>
+              <span className="shrink-0 text-[11px] tabular-nums text-spotify-text-subdued">
+                {isDownloading ? `${pct}%` : 'Queued'}
+              </span>
+            </div>
+          );
+        })}
 
         {/* Tracks */}
         {tracks.map((t, i) => (

@@ -334,9 +334,10 @@ class UnifiedSearchService:
         # the user didn't ask for them (query lacks the word), so "clocks" ranks
         # the studio cut above "Clocks (slowed+reverb 8d)" while "clocks slowed"
         # still finds it.
-        NOISE = {"slowed", "reverb", "sped", "lofi", "mashup", "megamix",
+        NOISE = {"slowed", "reverb", "reverbed", "sped", "lofi", "mashup", "megamix",
                  "nonstop", "karaoke", "8d", "boosted", "ringtone", "flip",
-                 "refix", "bootleg", "remake"}
+                 "refix", "bootleg", "remake", "instrumental", "remix", "remixed",
+                 "nightcore", "chopped", "screwed"}
         HARD_JUNK = ("free download", "full album", "all songs", "jukebox",
                      "audio jukebox", "back to back")
 
