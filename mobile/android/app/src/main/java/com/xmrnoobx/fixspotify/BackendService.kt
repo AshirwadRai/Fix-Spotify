@@ -52,8 +52,8 @@ class BackendService : Service() {
         // bound it first silently answers the other's API calls with its own token,
         // which the other app's WebView never carries — every request 403s. Different
         // ports per variant means they can never collide.
-        const val PORT = if (BuildConfig.DEBUG) 8766 else 8765
-        const val BASE_URL = "http://127.0.0.1:$PORT"
+        val PORT = if (BuildConfig.DEBUG) 8766 else 8765
+        val BASE_URL = "http://127.0.0.1:$PORT"
 
         /**
          * Per-launch secret guarding the API routes.
