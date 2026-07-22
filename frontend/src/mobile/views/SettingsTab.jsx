@@ -16,14 +16,15 @@ import { api } from '../../api';
 import { toast } from '../../utils/toast';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import {
-  isAndroid, getAppVersion, checkForUpdate, installUpdate, registerUpdateHandlers,
+  isAndroid, getAppVersion,
   requestStorageAccess, pickDownloadFolder,
 } from '../androidBridge';
+import { useUpdate, checkUpdate, startUpdateInstall } from '../updateStore';
 
-// The hosted documentation. Kept separate from "Tips & shortcuts" on purpose:
-// tips are three-second gestures you read in place, the docs are a reference you
-// go to with a question. Folding one into the other makes the quick list slower
-// to scan without making the reference easier to find.
+// The hosted documentation. Kept separate from "Shortcuts" on purpose: tips are
+// three-second gestures you read in place, the docs are a reference you go to
+// with a question. Folding one into the other makes the quick list slower to
+// scan without making the reference easier to find.
 //
 // NOTE: update this if the docs are published somewhere other than the canonical
 // repository's GitHub Pages site.
@@ -35,7 +36,7 @@ const DOCS_URL = 'https://ashirwadrai.github.io/Fix-Spotify/';
 // lucide export, resolved by name like the EQ presets.
 const TIPS = [
   { icon: 'ArrowLeftRight', title: 'Swipe to change song',
-    body: 'Swipe the mini-player left or right to jump to the next or previous track.' },
+    body: 'Swipe the mini-player, or the artwork in the full player, left or right to jump to the next or previous track.' },
   { icon: 'MousePointerClick', title: 'Double-tap to seek',
     body: 'In the full player, double-tap the left or right edge of the artwork to jump 10 seconds back or forward. Keep tapping to go further.' },
   { icon: 'Link', title: 'Import from Spotify',
@@ -62,23 +63,24 @@ const QUALITIES = [
   { value: 320, label: 'Very High', hint: '320 kbps — best quality' },
 ];
 
-function Section({ title, subtitle, children, inset = false }) {
+// Flat, transparent grouping: a small uppercase label over rows separated by
+// a hairline — no card fill, no shadow. The app's tone is plain and formal, not
+// a shaded/glassy "AI-generated" look, so a group is just rows on the same
+// dark base as everything else.
+function Section({ title, subtitle, children }) {
   return (
-    <section className="px-4 py-5 border-b border-white/[0.07]">
-      <h2 className="text-[17px] font-extrabold tracking-tight">{title}</h2>
-      {subtitle && (
-        <p className="text-[12.5px] text-spotify-text-subdued mt-0.5">{subtitle}</p>
+    <section className="px-4 pt-5">
+      {title && (
+        <h2 className="mb-2 px-1 text-[12px] font-bold uppercase tracking-[0.1em] text-spotify-text-subdued">
+          {title}
+        </h2>
       )}
-      {/* inset === true nests the child options inside a subtle card so the
-          section heading reads as the parent and the rows as its children —
-          the main/child hierarchy the flat list was missing. */}
-      <div
-        className={
-          inset
-            ? 'mt-3 rounded-xl bg-white/[0.035] px-3 divide-y divide-white/[0.05]'
-            : 'mt-3'
-        }
-      >
+      {subtitle && (
+        <p className="mb-2 -mt-1 px-1 text-[12px] leading-snug text-spotify-text-subdued/70">
+          {subtitle}
+        </p>
+      )}
+      <div className="divide-y divide-white/[0.08]">
         {children}
       </div>
     </section>
@@ -239,7 +241,7 @@ export function SettingsTab({ onClose }) {
   if (panel === 'quality') {
     return (
       <Panel title="Sound quality" onBack={() => setPanel(null)}>
-        <Section title="Streaming bitrate" subtitle="Higher sounds better and uses more data" inset>
+        <Section title="Streaming bitrate" subtitle="Higher sounds better and uses more data">
           {QUALITIES.map((q) => (
             <Choice
               key={q.value}
@@ -265,7 +267,7 @@ export function SettingsTab({ onClose }) {
   if (panel === 'crossfade') {
     return (
       <Panel title="Crossfade" onBack={() => setPanel(null)}>
-        <Section title="Overlap" subtitle="Let one song melt into the next instead of stopping dead" inset>
+        <Section title="Overlap" subtitle="Let one song melt into the next instead of stopping dead">
           <div className="flex items-center gap-3 py-4">
             <span className="w-7 text-[11px] text-spotify-text-subdued">Off</span>
             <input
@@ -290,15 +292,13 @@ export function SettingsTab({ onClose }) {
 
   if (panel === 'tips') {
     return (
-      <Panel title="Tips & shortcuts" onBack={() => setPanel(null)}>
+      <Panel title="Shortcuts" onBack={() => setPanel(null)}>
         <div className="px-4 py-2">
           {TIPS.map((t) => {
             const Icon = LucideIcons[t.icon] || LucideIcons.Sparkles;
             return (
-              <div key={t.title} className="flex items-start gap-3.5 py-3.5 border-b border-white/[0.06]">
-                <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/[0.06]">
-                  <Icon size={17} className="text-spotify-essential-bright-accent" />
-                </span>
+              <div key={t.title} className="flex items-start gap-3.5 py-3.5 border-b border-white/[0.08]">
+                <Icon size={19} className="mt-0.5 shrink-0 text-spotify-essential-bright-accent" />
                 <div className="min-w-0 flex-1">
                   <p className="text-[15px] font-semibold">{t.title}</p>
                   <p className="mt-0.5 text-[12.5px] leading-snug text-spotify-text-subdued">{t.body}</p>
@@ -332,38 +332,33 @@ export function SettingsTab({ onClose }) {
             track rows advertise about it. Bitrate used to be its own top-level
             section and the two badges were stranded under "Playback", which had
             nothing to do with either. */}
-        <Section title="Media quality" subtitle="Streaming bitrate and what's shown on tracks" inset>
+        <Section title="Media quality">
           <PanelRow label="Sound quality" value={qualityLabel} onClick={() => setPanel('quality')} />
           <Toggle
             label="Source badge"
-            hint="Show where each track streams from (JioSaavn, SoundCloud, YouTube)"
             checked={!!settings.showSourceBadge}
             onChange={(v) => writeAppSetting('showSourceBadge', v)}
           />
           <Toggle
             label="Quality badge"
-            hint="Show the live bitrate (e.g. 320 kbps) on the now-playing screen"
             checked={!!settings.showQualityBadge}
             onChange={(v) => writeAppSetting('showQualityBadge', v)}
           />
         </Section>
 
-        {/* Sound — everything that shapes the audio itself. */}
-        <Section title="Sound" subtitle="Equalizer, crossfade and levels" inset>
+        <Section title="Sound">
           <PanelRow label="Equalizer" value={eqLabel} onClick={() => setPanel('equalizer')} />
           <PanelRow label="Crossfade" value={crossfadeLabel} onClick={() => setPanel('crossfade')} />
           <Toggle
             label="Normalize volume"
-            hint="Even out loud and quiet tracks so you're not reaching for the dial"
             checked={!!settings.normalizeVolume}
             onChange={(v) => writeAppSetting('normalizeVolume', v)}
           />
         </Section>
 
-        <Section title="Playback" inset>
+        <Section title="Playback">
           <Toggle
             label="Autoplay"
-            hint="When the queue ends, keep playing songs similar to what you were listening to"
             checked={!!settings.autoplay}
             onChange={(v) => writeAppSetting('autoplay', v)}
           />
@@ -375,13 +370,9 @@ export function SettingsTab({ onClose }) {
 
         {/* About & help — grouped near the bottom where help-type items
             conventionally live. */}
-        <Section title="About & help" inset>
-          <PanelRow label="Tips & shortcuts" onClick={() => setPanel('tips')} />
-          <LinkRow
-            label="Documentation"
-            hint="Full guide — every feature, setting and fix, in the browser"
-            href={DOCS_URL}
-          />
+        <Section title="About & help">
+          <PanelRow label="Shortcuts" onClick={() => setPanel('tips')} />
+          <LinkRow label="Documentation" href={DOCS_URL} />
         </Section>
 
         <UpdateSection />
@@ -613,7 +604,7 @@ function EqualizerPanel({ settings }) {
 
   return (
     <>
-      <Section title="Equalizer" subtitle="Shape the sound across eight frequency bands" inset>
+      <Section title="Equalizer" subtitle="Shape the sound across eight frequency bands">
         <Toggle
           label="Enable equalizer"
           checked={enabled}
@@ -735,7 +726,7 @@ const ALWAYS_ON = [
 
 function SourcesSection() {
   return (
-    <Section title="Sources" subtitle="Where your music is streamed from" inset>
+    <Section title="Sources" subtitle="Where your music is streamed from">
       {/* Core sources read as switches that are ON and can't be turned off,
           rather than a text label — so the row is the same shape as YouTube's
           below it instead of looking like a different kind of thing. The switch
@@ -812,30 +803,16 @@ function YouTubeExperimentalToggle() {
 }
 
 function UpdateSection() {
-  const [state, setState] = useState('idle');   // idle | checking | current | found | downloading | failed
-  const [info, setInfo] = useState(null);
-  const [pct, setPct] = useState(0);
-
+  // State lives in a module-level store (updateStore) so an in-flight download
+  // survives this screen unmounting — scrolling to Home mid-update no longer
+  // orphans the native APK fetch and "fails" the update.
+  const { phase: state, info, pct } = useUpdate();
   const version = getAppVersion();
 
-  useEffect(() => registerUpdateHandlers({
-    onResult: (res) => {
-      setInfo(res);
-      setState(res?.available ? 'found' : 'current');
-    },
-    onProgress: (p) => {
-      if (p < 0) { setState('failed'); return; }
-      setPct(p);
-    },
-  }), []);
-
-  // Check once on open — silent when already current, so it never nags.
-  useEffect(() => {
-    if (isAndroid()) {
-      setState('checking');
-      checkForUpdate();
-    }
-  }, []);
+  // Check once on open — silent when already current, so it never nags. The
+  // store ignores this while a download is in flight, so returning to Settings
+  // doesn't interrupt an install already running.
+  useEffect(() => { checkUpdate(); }, []);
 
   if (!isAndroid()) return null;
 
@@ -874,7 +851,7 @@ function UpdateSection() {
           {state === 'found' && (
             <button
               type="button"
-              onClick={() => { setState('downloading'); setPct(0); installUpdate(); }}
+              onClick={() => startUpdateInstall()}
               className="mt-3 px-5 py-2 rounded-full bg-spotify-essential-bright-accent text-black text-[13px] font-semibold"
             >
               Download &amp; install
@@ -885,7 +862,7 @@ function UpdateSection() {
             <button
               type="button"
               disabled={state === 'checking'}
-              onClick={() => { setState('checking'); checkForUpdate(); }}
+              onClick={() => checkUpdate()}
               className="tap mt-3 inline-flex items-center gap-2 rounded-full bg-white/10 px-5 py-2 text-[13px] font-semibold disabled:opacity-70"
             >
               {/* The icon rolls inside the button while checking — self-contained,

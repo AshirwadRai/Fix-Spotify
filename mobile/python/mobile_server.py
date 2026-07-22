@@ -732,6 +732,10 @@ def proxy_stream():
     def resolve_and_fetch(br):
         s_url = _resolve_stream_url_cached(url, source, br)
         if not s_url:
+            # Distinct from an upstream rejection: here the source had no full,
+            # progressive stream to hand us (SoundCloud HLS/preview-only, or a
+            # dead page). Logged so a 502 in the field is self-explaining.
+            print(f"[proxy] {source} could not resolve a stream for {url} (br={br})")
             return None, None
         headers = {
             "User-Agent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36",
@@ -740,14 +744,20 @@ def proxy_stream():
         }
         if source == "jiosaavn":
             headers["Referer"] = "https://www.jiosaavn.com/"
-        r = http_requests.get(s_url, headers=headers, stream=True, timeout=30)
+        # Split timeout: 6s to CONNECT, 30s to read. A dead/blocked host used to
+        # hang the whole 30s on connect, freezing the player on a track that was
+        # never going to play; now it fails in ~6s and the caller can move on.
+        # The 30s read budget is untouched, so a slow-but-valid stream is fine.
+        r = http_requests.get(s_url, headers=headers, stream=True, timeout=(6, 30))
         if r.status_code in (403, 404, 410, 500, 502, 503):
+            code = r.status_code
             r.close()
             # A cached URL that upstream now rejects is stale — drop it so the
             # next attempt (next ladder step, or a replay) re-resolves fresh
             # instead of serving the same dead URL from cache.
             _evict_stream_url(url, source, br)
-            return None, r.status_code
+            print(f"[proxy] {source} upstream {code} for {url} (br={br})")
+            return None, code
         return r, None
 
     upstream, last_status = None, None

@@ -4,6 +4,7 @@ import { readAppSettings, qualityToBitrate } from '../utils/settings';
 import { apiUrl } from '../utils/config';
 import { getOfflineEntry, removeOfflineEntry } from '../utils/downloads';
 import { insertQueued } from '../utils/queue';
+import { toast } from '../utils/toast';
 import { EQ_BANDS, resolveGains, isFlat } from '../utils/eq';
 // Platform check only. Every function in androidBridge is a no-op off Android, so
 // importing it into the shared store costs the desktop bundle nothing.
@@ -207,6 +208,29 @@ export function PlayerProvider({ children }) {
   useEffect(() => { volumeRef.current = volume; }, [volume]);
   useEffect(() => { currentTrackRef.current = currentTrack; }, [currentTrack]);
   useEffect(() => { queueRef.current = queue; }, [queue]);
+
+  // Prefetch the NEXT track's stream resolution while the current one plays, so
+  // an auto-advance doesn't pay the full resolve latency at the switch (the ~1s
+  // stall between songs). This ONLY warms the backend's stream-URL cache —
+  // stream_info resolves and caches exactly what proxy_stream reuses a beat
+  // later — so it never touches the <audio> element and cannot cause double
+  // playback or disturb the current song. Best-effort: any failure is ignored.
+  useEffect(() => {
+    if (!currentTrack) return undefined;
+    const timer = setTimeout(() => {
+      const next = queueRef.current[0];
+      if (!next) return;
+      try {
+        const source = getPlayableSource(next);
+        const url = next?.sources?.[source]?.url;
+        if (url && /^https?:/.test(url) && ['jiosaavn', 'soundcloud', 'youtube', 'youtube_music'].includes(source)) {
+          const bitrate = qualityToBitrate(readAppSettings().audioQuality);
+          api.getStreamInfo(url, source, bitrate).catch(() => {});
+        }
+      } catch { /* prefetch is best-effort — never let it surface */ }
+    }, 2500); // a couple of seconds in, once the current track has settled
+    return () => clearTimeout(timer);
+  }, [currentTrack]);
   useEffect(() => { shuffleRef.current = shuffle; }, [shuffle]);
   useEffect(() => { historyRef.current = history; }, [history]);
 
@@ -295,6 +319,15 @@ export function PlayerProvider({ children }) {
       // Cross-source fallback: the current source failed to load (dead / DRM /
       // geo-blocked). If this track has another source, try it before erroring.
       const att = playAttemptRef.current;
+      // Diagnostic: this is the moment a track starts to fail. Before this line
+      // a skip left no trace at all — the auto-skip branch in giveUp() returns
+      // before any log. Surfaced to logcat via the WebView console bridge, so a
+      // song that silently skips now says which source died and why.
+      console.warn(
+        `[play] error on "${currentTrackRef.current?.title || '?'}" ` +
+        `src=${att?.sources?.[att.idx]?.source || '?'} ` +
+        `code=${audio.error?.code || '?'} net=${navigator.onLine}`
+      );
       if (att && att.idx + 1 < att.sources.length) {
         const failed = att.sources[att.idx];
         // A downloaded file that 404s (deleted/moved) shouldn't dead-end: fall
@@ -347,6 +380,15 @@ export function PlayerProvider({ children }) {
       // (non-offline) tracks, so offline files never trigger this.
       if (att && autoSkipRef.current < 5) {
         autoSkipRef.current += 1;
+        console.warn(
+          `[play] giving up, auto-skip #${autoSkipRef.current} — ` +
+          `tried [${att.sources.map(s => s.source).join(', ')}], ` +
+          `searched=${att.searched}`
+        );
+        // Tell the user WHY the song changed on its own — an unavailable track
+        // vanishing with no word reads as a glitch. Named, brief, once per skip.
+        const skipped = currentTrackRef.current?.title;
+        if (skipped) toast(`Skipped "${skipped}" — unavailable`);
         setIsLoading(false);
         setIsPlaying(false);
         playNextRef.current?.();

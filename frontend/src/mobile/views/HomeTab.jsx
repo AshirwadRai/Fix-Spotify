@@ -75,25 +75,35 @@ export function HomeTab({ onHomeItem, onOpenSettings, updateDot = false }) {
     };
   }, []);
 
+  // "Good" stays bold white; the time word carries the colour + a soft entrance
+  // so the header feels alive rather than static.
   const greeting = (() => {
     const h = new Date().getHours();
-    if (h < 12) return 'Good morning';
-    if (h < 18) return 'Good afternoon';
-    return 'Good evening';
+    if (h < 12) return { word: 'morning', color: '#f5b301' };   // warm amber
+    if (h < 18) return { word: 'afternoon', color: '#1ed760' }; // brand green
+    return { word: 'evening', color: '#c084fc' };               // dusk violet
   })();
 
   return (
     <div className="scroll-y pb-bars h-full">
       <div className="pt-safe">
         <div className="flex items-center justify-between px-4 pt-4 pb-2">
-          <h1 className="text-[27px] font-black tracking-[-0.02em]">{greeting}</h1>
+          <h1 className="text-[31px] font-black tracking-[-0.035em] leading-none">
+            <span className="text-white">Good </span>
+            <span
+              className="greet-word"
+              style={{ color: greeting.color }}
+            >
+              {greeting.word}
+            </span>
+          </h1>
           <button
             type="button"
             aria-label="Settings"
             onClick={onOpenSettings}
-            className="tap relative p-1 text-spotify-text-subdued active:text-white"
+            className="tap relative p-1 text-white active:text-white"
           >
-            <Settings size={24} />
+            <Settings size={24} strokeWidth={2.4} />
             {/* Update waiting inside — the dot survives dismissing the popup. */}
             {updateDot && (
               <span className="absolute right-0 top-0 h-2.5 w-2.5 rounded-full bg-spotify-essential-bright-accent ring-2 ring-spotify-black" />

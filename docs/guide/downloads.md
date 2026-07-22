@@ -32,13 +32,17 @@ That sounds obvious until you've used a downloader that doesn't do it. Files lan
 
 **Settings → Storage** sets the download folder, and there's a reset-to-default if you move it somewhere awkward.
 
+## Watching it happen
+
+A download in progress shows right in the list — a dimmed row with a live progress bar, above the finished tracks, so a queued playlist doesn't just sit there silently until it's done.
+
 ## Playing offline
 
 Downloaded songs play with **no connection at all**. They appear in your library alongside everything else.
 
-## Removing a download
+## Removing downloads
 
-Delete it from the downloads list and the library updates immediately — no need to leave the screen and come back.
+**Hold a song** in Downloaded to start selecting, then tap others to add them — a bar at the top shows how many you've picked, with a shortcut to select every song at once. Confirm, and they're gone from **both** your library and the actual download folder in one step, no need to delete one at a time.
 
 ## If a download fails
 

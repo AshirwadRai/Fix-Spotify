@@ -36,7 +36,7 @@ export function BottomNav({ active, onChange }) {
     // `contain: paint` tells the compositor nothing inside it can affect
     // anything outside, so it stops being re-laid-out with the scroller.
     <nav
-      className="shrink-0 border-t border-white/[0.12] pb-safe"
+      className="shrink-0 pb-safe"
       style={{
         backgroundColor: 'rgba(12, 12, 14, 0.55)',
         backdropFilter: 'blur(32px) saturate(200%)',

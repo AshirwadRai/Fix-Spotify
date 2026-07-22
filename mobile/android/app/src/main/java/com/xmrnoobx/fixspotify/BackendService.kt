@@ -46,8 +46,14 @@ import kotlin.concurrent.thread
 class BackendService : Service() {
 
     companion object {
-        const val PORT = 8765
-        const val BASE_URL = "http://127.0.0.1:$PORT"
+        // The debug build installs ALONGSIDE the release app (separate applicationId)
+        // and both keep a foreground service alive in the background, so they can
+        // both be holding a loopback port at once. A shared port means whichever one
+        // bound it first silently answers the other's API calls with its own token,
+        // which the other app's WebView never carries — every request 403s. Different
+        // ports per variant means they can never collide.
+        val PORT = if (BuildConfig.DEBUG) 8766 else 8765
+        val BASE_URL = "http://127.0.0.1:$PORT"
 
         /**
          * Per-launch secret guarding the API routes.
@@ -319,21 +325,27 @@ class BackendService : Service() {
      *
      * Assets inside an APK are not real files, so Flask's send_from_directory
      * cannot read them — they have to exist on the filesystem first. Re-extracted
-     * whenever versionCode changes, so an app update ships a fresh UI.
+     * whenever the app was actually reinstalled, so an update ships a fresh UI.
+     *
+     * Keyed on lastUpdateTime, not versionCode: two different builds CAN carry
+     * the same versionCode (a workflow_dispatch test build's version is typed by
+     * hand, independent of the code it was built from, and a hotfix retag can
+     * reuse a version number too) — this happened once and left a real install
+     * silently stuck serving a stale bundle despite reinstalling. lastUpdateTime
+     * is stamped by PackageManager itself at install time, so it changes on
+     * every genuine install/update no matter what version string the build
+     * carries, and is stable across the app just being relaunched.
      */
     private fun extractWebAssets(): File {
         val webDir = File(filesDir, "web")
         val stamp = File(webDir, ".version")
-        val version = packageManager.getPackageInfo(packageName, 0).let {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) it.longVersionCode
-            else @Suppress("DEPRECATION") it.versionCode.toLong()
-        }.toString()
+        val version = packageManager.getPackageInfo(packageName, 0).lastUpdateTime.toString()
 
         if (stamp.exists() && stamp.readText() == version) {
             return webDir
         }
 
-        Log.i(TAG, "extracting web assets (version $version)")
+        Log.i(TAG, "extracting web assets (installed $version)")
         webDir.deleteRecursively()
         webDir.mkdirs()
         copyAssetDir("web", webDir)
@@ -362,11 +374,18 @@ class BackendService : Service() {
     private fun setupMediaSession() {
         mediaSession = MediaSessionCompat(this, "FixSpotify").apply {
             setCallback(object : MediaSessionCompat.Callback() {
-                override fun onPlay() = dispatchTransport("play")
-                override fun onPause() = dispatchTransport("pause")
-                override fun onSkipToNext() = dispatchTransport("next")
-                override fun onSkipToPrevious() = dispatchTransport("previous")
-                override fun onStop() = dispatchTransport("pause")
+                // Bluetooth earbuds deliver AVRCP commands straight to these
+                // callbacks (NOT onMediaButtonEvent), so this is where an
+                // unreliable single-tap actually lands. Logging which callback
+                // fires and what state we were in tells us whether a toggle is
+                // resolving to the wrong branch because our PlaybackState was
+                // stale — the real cause of "tap once does nothing, tap again
+                // works". `adb logcat -s BackendService | grep MEDIACB`.
+                override fun onPlay() { Log.i(TAG, "MEDIACB onPlay (wasPlaying=$isPlaying)"); dispatchTransport("play") }
+                override fun onPause() { Log.i(TAG, "MEDIACB onPause (wasPlaying=$isPlaying)"); dispatchTransport("pause") }
+                override fun onSkipToNext() { Log.i(TAG, "MEDIACB onSkipToNext"); dispatchTransport("next") }
+                override fun onSkipToPrevious() { Log.i(TAG, "MEDIACB onSkipToPrevious"); dispatchTransport("previous") }
+                override fun onStop() { Log.i(TAG, "MEDIACB onStop"); dispatchTransport("pause") }
                 override fun onSeekTo(pos: Long) {
                     lastPositionMs = pos
                     transportListener?.onCommand("seek:$pos")

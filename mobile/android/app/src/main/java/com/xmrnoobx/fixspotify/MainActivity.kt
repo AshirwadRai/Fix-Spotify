@@ -17,6 +17,7 @@ import android.os.Looper
 import android.provider.Settings
 import android.util.Log
 import android.view.View
+import android.webkit.ConsoleMessage
 import android.webkit.JavascriptInterface
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
@@ -29,6 +30,8 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
 import kotlin.concurrent.thread
 
 /**
@@ -136,6 +139,22 @@ class MainActivity : AppCompatActivity() {
         // nothing. Forwarding it to the system picker is what lets the user
         // choose a custom playlist cover.
         webView.webChromeClient = object : WebChromeClient() {
+            // Forward the React app's console to logcat. Without this the entire
+            // JS side — stream resolution, playback errors, the auto-skip
+            // decisions — logs to a console nothing can read, which is the whole
+            // reason on-device issues were undiagnosable. `adb logcat -s FixJS`
+            // now shows exactly what the player is doing.
+            override fun onConsoleMessage(m: ConsoleMessage): Boolean {
+                val where = "${m.sourceId()?.substringAfterLast('/') ?: "?"}:${m.lineNumber()}"
+                val line = "[$where] ${m.message()}"
+                when (m.messageLevel()) {
+                    ConsoleMessage.MessageLevel.ERROR -> Log.e("FixJS", line)
+                    ConsoleMessage.MessageLevel.WARNING -> Log.w("FixJS", line)
+                    else -> Log.i("FixJS", line)
+                }
+                return true
+            }
+
             override fun onShowFileChooser(
                 view: WebView?,
                 callback: ValueCallback<Array<Uri>>?,
@@ -219,10 +238,46 @@ class MainActivity : AppCompatActivity() {
     /** Poll /health, then load the SPA. A cold Python boot takes a few seconds. */
     private fun waitForBackendThenLoad() {
         if (BackendService.serverReady.get()) {
-            webView.loadUrl(BackendService.BASE_URL)
+            chooseStartUrlThenLoad()
             return
         }
         handler.postDelayed({ waitForBackendThenLoad() }, 250)
+    }
+
+    /**
+     * DEBUG builds only: if a Vite dev server is reachable at localhost:5174
+     * (set up with `adb reverse tcp:5174 tcp:5174`), load the live frontend from
+     * it so React edits hot-reload on the device in ~1s — no APK rebuild. Vite
+     * proxies /api and /health to the phone's own Flask (via `adb forward
+     * tcp:8766 tcp:8766` — the debug build's own port, see BackendService.PORT),
+     * so the backend, token and <audio> all still work.
+     * If the dev server isn't up, fall back to the bundled SPA, so the debug
+     * app is fully usable standalone. Release builds never touch this path.
+     */
+    private fun chooseStartUrlThenLoad() {
+        if (!BuildConfig.DEBUG) {
+            webView.loadUrl(BackendService.BASE_URL)
+            return
+        }
+        thread(isDaemon = true) {
+            val devReachable = try {
+                (URL("$DEV_SERVER_URL/").openConnection() as HttpURLConnection).run {
+                    connectTimeout = 600
+                    readTimeout = 600
+                    requestMethod = "HEAD"
+                    val ok = responseCode in 200..399
+                    disconnect()
+                    ok
+                }
+            } catch (e: Exception) {
+                false
+            }
+            val target = if (devReachable) DEV_SERVER_URL else BackendService.BASE_URL
+            runOnUiThread {
+                Log.i("FixDev", "loading ${if (devReachable) "Vite dev server" else "bundled SPA"}: $target")
+                webView.loadUrl(target)
+            }
+        }
     }
 
     // ── JS ⇄ native bridge ────────────────────────────────────────────────────
@@ -549,5 +604,8 @@ class MainActivity : AppCompatActivity() {
         const val TAG = "FixSpotify"
         const val REQ_NOTIFICATIONS = 1001
         const val REQ_STORAGE = 1002
+        // Vite dev server, reached from the device via `adb reverse tcp:5174`.
+        // Only consulted in DEBUG builds (see chooseStartUrlThenLoad).
+        const val DEV_SERVER_URL = "http://localhost:5174"
     }
 }
