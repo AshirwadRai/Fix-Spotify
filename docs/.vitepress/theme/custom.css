@@ -148,83 +148,42 @@
 }
 
 /* ── Previous / Next ───────────────────────────────────────────────────────
- * Rebuilt as a pair of cards that lead with the direction, not the border.
- * The old links announced themselves with a gradient on hover; these move —
- * the card lifts, the accent rail on the leading edge grows in, and the arrow
- * travels the way you are about to go. Motion says "forward" in a way a
- * colour wash never did. */
+ * A plain, static card: a solid border, a flat accent edge on the side it
+ * points to, and a simple colour change on interaction — no lift, no bounce,
+ * no gradient wash. Formal rather than playful, and it reads identically on
+ * hover (desktop) or tap (mobile), since it never depended on motion that
+ * only one of those inputs can trigger. */
 .VPDocFooter .pager-link {
   position: relative;
-  overflow: hidden;
   border: 1px solid var(--vp-c-divider);
-  border-radius: 12px;
+  border-radius: 8px;
   background: var(--vp-c-bg-soft);
   background-image: none;
-  transition: transform 0.32s cubic-bezier(0.22, 0.61, 0.24, 1),
-    box-shadow 0.32s ease, background-color var(--fs-theme-ease),
-    border-color var(--fs-theme-ease), color var(--fs-theme-ease);
+  transition: border-color var(--fs-theme-ease), background-color var(--fs-theme-ease),
+    color var(--fs-theme-ease);
 }
 
-/* The rail: a thin accent bar on the edge the link points away from, scaling
- * up from nothing. Cheap, GPU-only, and it disambiguates prev from next at a
- * glance. */
-.VPDocFooter .pager-link::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 3px;
-  background: linear-gradient(var(--fs-accent-2), var(--fs-accent));
-  transform: scaleY(0);
-  transition: transform 0.32s cubic-bezier(0.22, 0.61, 0.24, 1);
+.VPDocFooter .pager-link.prev {
+  border-left: 3px solid var(--fs-accent);
 }
 
-.VPDocFooter .pager-link.prev::before {
-  left: 0;
-  transform-origin: top;
+.VPDocFooter .pager-link.next {
+  border-right: 3px solid var(--fs-accent);
 }
 
-.VPDocFooter .pager-link.next::before {
-  right: 0;
-  transform-origin: bottom;
-}
-
-.VPDocFooter .pager-link:hover {
+.VPDocFooter .pager-link:hover,
+.VPDocFooter .pager-link:active {
   border-color: var(--fs-accent);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.14);
-}
-
-.VPDocFooter .pager-link.prev:hover {
-  transform: translateX(-4px);
-}
-
-.VPDocFooter .pager-link.next:hover {
-  transform: translateX(4px);
-}
-
-.VPDocFooter .pager-link:hover::before {
-  transform: scaleY(1);
+  background: var(--vp-c-bg-mute);
 }
 
 .VPDocFooter .pager-link .title {
-  transition: color 0.25s ease;
+  transition: color var(--fs-theme-ease);
 }
 
-.VPDocFooter .pager-link:hover .title {
+.VPDocFooter .pager-link:hover .title,
+.VPDocFooter .pager-link:active .title {
   color: var(--fs-accent);
-}
-
-/* The direction word slides the way the link goes. */
-.VPDocFooter .pager-link .desc {
-  transition: transform 0.32s cubic-bezier(0.22, 0.61, 0.24, 1);
-}
-
-.VPDocFooter .pager-link.prev:hover .desc {
-  transform: translateX(-4px);
-}
-
-.VPDocFooter .pager-link.next:hover .desc {
-  transform: translateX(4px);
 }
 
 /* ── Theme switch ──────────────────────────────────────────────────────────
@@ -276,8 +235,7 @@ body,
   .VPSwitch .check,
   .VPSwitch .icon,
   .VPDocFooter .pager-link,
-  .VPDocFooter .pager-link::before,
-  .VPDocFooter .pager-link .desc {
+  .VPDocFooter .pager-link .title {
     transition: none !important;
   }
 }
