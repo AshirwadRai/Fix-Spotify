@@ -72,10 +72,13 @@ export default defineConfig({
     proxy: {
       // Two consumers, one proxy:
       //  · `npm run dev:mobile` in a desktop browser against a locally-run
-      //    mobile backend, and
+      //    mobile backend (`python mobile_server.py --port 8766`), and
       //  · the DEBUG Android build hot-reloading (MainActivity loads this dev
       //    server; /api and /health are forwarded to the PHONE's Flask via
-      //    `adb forward tcp:8765 tcp:8765`).
+      //    `adb forward tcp:8766 tcp:8766`).
+      // ponytail: the debug APK on-device right now still binds 8765 (built before
+      // the 8766 port-separation fix landed in BackendService.kt). Bump this to
+      // 8766 the next time a fresh debug APK is installed, to match its new port.
       '/api': { target: 'http://127.0.0.1:8765', changeOrigin: true },
       '/health': { target: 'http://127.0.0.1:8765', changeOrigin: true },
     },

@@ -21,10 +21,10 @@ import {
 } from '../androidBridge';
 import { useUpdate, checkUpdate, startUpdateInstall } from '../updateStore';
 
-// The hosted documentation. Kept separate from "Tips & shortcuts" on purpose:
-// tips are three-second gestures you read in place, the docs are a reference you
-// go to with a question. Folding one into the other makes the quick list slower
-// to scan without making the reference easier to find.
+// The hosted documentation. Kept separate from "Shortcuts" on purpose: tips are
+// three-second gestures you read in place, the docs are a reference you go to
+// with a question. Folding one into the other makes the quick list slower to
+// scan without making the reference easier to find.
 //
 // NOTE: update this if the docs are published somewhere other than the canonical
 // repository's GitHub Pages site.
@@ -36,7 +36,7 @@ const DOCS_URL = 'https://ashirwadrai.github.io/Fix-Spotify/';
 // lucide export, resolved by name like the EQ presets.
 const TIPS = [
   { icon: 'ArrowLeftRight', title: 'Swipe to change song',
-    body: 'Swipe the mini-player left or right to jump to the next or previous track.' },
+    body: 'Swipe the mini-player, or the artwork in the full player, left or right to jump to the next or previous track.' },
   { icon: 'MousePointerClick', title: 'Double-tap to seek',
     body: 'In the full player, double-tap the left or right edge of the artwork to jump 10 seconds back or forward. Keep tapping to go further.' },
   { icon: 'Link', title: 'Import from Spotify',
@@ -63,12 +63,10 @@ const QUALITIES = [
   { value: 320, label: 'Very High', hint: '320 kbps — best quality' },
 ];
 
-// Grouped-card layout (iOS/Spotify style): a small uppercase label sits above a
-// single rounded card that holds the rows, floating on the dark base. No
-// full-width dividers between sections — the gaps do that work, so the screen
-// reads as calm, scannable groups rather than one long ruled list. `inset` is
-// kept in the signature for callers but no longer changes anything (every group
-// is carded now).
+// Flat, transparent grouping: a small uppercase label over rows separated by
+// a hairline — no card fill, no shadow. The app's tone is plain and formal, not
+// a shaded/glassy "AI-generated" look, so a group is just rows on the same
+// dark base as everything else.
 function Section({ title, subtitle, children }) {
   return (
     <section className="px-4 pt-5">
@@ -82,7 +80,7 @@ function Section({ title, subtitle, children }) {
           {subtitle}
         </p>
       )}
-      <div className="rounded-2xl bg-white/[0.05] px-3.5 divide-y divide-white/[0.055] shadow-[0_1px_0_rgba(255,255,255,0.03)_inset]">
+      <div className="divide-y divide-white/[0.08]">
         {children}
       </div>
     </section>
@@ -294,15 +292,13 @@ export function SettingsTab({ onClose }) {
 
   if (panel === 'tips') {
     return (
-      <Panel title="Tips & shortcuts" onBack={() => setPanel(null)}>
+      <Panel title="Shortcuts" onBack={() => setPanel(null)}>
         <div className="px-4 py-2">
           {TIPS.map((t) => {
             const Icon = LucideIcons[t.icon] || LucideIcons.Sparkles;
             return (
-              <div key={t.title} className="flex items-start gap-3.5 py-3.5 border-b border-white/[0.06]">
-                <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/[0.06]">
-                  <Icon size={17} className="text-spotify-essential-bright-accent" />
-                </span>
+              <div key={t.title} className="flex items-start gap-3.5 py-3.5 border-b border-white/[0.08]">
+                <Icon size={19} className="mt-0.5 shrink-0 text-spotify-essential-bright-accent" />
                 <div className="min-w-0 flex-1">
                   <p className="text-[15px] font-semibold">{t.title}</p>
                   <p className="mt-0.5 text-[12.5px] leading-snug text-spotify-text-subdued">{t.body}</p>
@@ -375,7 +371,7 @@ export function SettingsTab({ onClose }) {
         {/* About & help — grouped near the bottom where help-type items
             conventionally live. */}
         <Section title="About & help">
-          <PanelRow label="Tips & shortcuts" onClick={() => setPanel('tips')} />
+          <PanelRow label="Shortcuts" onClick={() => setPanel('tips')} />
           <LinkRow label="Documentation" href={DOCS_URL} />
         </Section>
 

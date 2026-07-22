@@ -249,7 +249,8 @@ class MainActivity : AppCompatActivity() {
      * (set up with `adb reverse tcp:5174 tcp:5174`), load the live frontend from
      * it so React edits hot-reload on the device in ~1s — no APK rebuild. Vite
      * proxies /api and /health to the phone's own Flask (via `adb forward
-     * tcp:8765 tcp:8765`), so the backend, token and <audio> all still work.
+     * tcp:8766 tcp:8766` — the debug build's own port, see BackendService.PORT),
+     * so the backend, token and <audio> all still work.
      * If the dev server isn't up, fall back to the bundled SPA, so the debug
      * app is fully usable standalone. Release builds never touch this path.
      */

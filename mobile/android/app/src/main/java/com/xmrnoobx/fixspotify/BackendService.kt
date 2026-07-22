@@ -46,7 +46,13 @@ import kotlin.concurrent.thread
 class BackendService : Service() {
 
     companion object {
-        const val PORT = 8765
+        // The debug build installs ALONGSIDE the release app (separate applicationId)
+        // and both keep a foreground service alive in the background, so they can
+        // both be holding a loopback port at once. A shared port means whichever one
+        // bound it first silently answers the other's API calls with its own token,
+        // which the other app's WebView never carries — every request 403s. Different
+        // ports per variant means they can never collide.
+        const val PORT = if (BuildConfig.DEBUG) 8766 else 8765
         const val BASE_URL = "http://127.0.0.1:$PORT"
 
         /**
